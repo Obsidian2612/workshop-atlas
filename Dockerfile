@@ -5,6 +5,9 @@ RUN corepack enable && corepack prepare pnpm@11.24.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
+# Build the Vite client first: nitro embeds dist/index.html as the SPA shell
+# and copies dist/ into .output/public for the production server.
+RUN pnpm build
 RUN npx nitro build
 
 FROM node:24-alpine AS runtime
