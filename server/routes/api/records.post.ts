@@ -53,9 +53,13 @@ export default defineHandler(async event => {
     if (kind === "service" && !vehicleId) fail(400, "Select a vehicle for this service entry");
     const date = text(body.date, "Date", 10);
     if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date)))) fail(400, "Enter a valid date");
+    const rawRepairTime = body.repairTimeMinutes ?? body.repairTime;
+    const repairTimeMinutes = rawRepairTime === undefined || rawRepairTime === null || rawRepairTime === "" ? 0 : Number(rawRepairTime);
+    if (!Number.isInteger(repairTimeMinutes) || repairTimeMinutes < 0 || repairTimeMinutes > 1440) fail(400, "Repair time must be a whole number of minutes between 0 and 1440");
     const record = { ...common, kind: kind as "procedure" | "note" | "service", vehicleId,
       title: text(body.title, "Title", 200, true), category: text(body.category, "Category", 100),
-      content: text(body.content, "Content", 30000, true), date, mileage: text(body.mileage, "Mileage", 40) };
+      content: text(body.content, "Content", 30000, true), date, mileage: text(body.mileage, "Mileage", 40),
+      repairTimeMinutes: kind === "service" ? repairTimeMinutes : 0 };
     db.records = [record, ...db.records.filter(r => r.id !== record.id)];
     logActivity(db, user, `${existing ? "Updated" : "Added"} ${record.title}`);
     return record;
