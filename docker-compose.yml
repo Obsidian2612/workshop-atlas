@@ -8,7 +8,9 @@ services:
       NITRO_DATA_DIR: /data
       NITRO_HOST: 0.0.0.0
       NITRO_PORT: "3000"
-      NITRO_SETUP_KEY: "${WORKSHOP_SETUP_KEY:?Set a unique WORKSHOP_SETUP_KEY in your Docker manager before deployment}"
+      # Optional. When set, creating the first administrator requires this key.
+      # Leave it empty only on a host nobody else can reach before setup finishes.
+      NITRO_SETUP_KEY: "${WORKSHOP_SETUP_KEY:-}"
     volumes:
       - workshop-data:/data
     read_only: true
