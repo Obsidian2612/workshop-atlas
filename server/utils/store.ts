@@ -9,6 +9,7 @@ type Session = { hash: string; userId: string; expires: number };
 export interface Store {
   name: string; vmUrl: string; users: StoredUser[]; sessions: Session[];
   vehicles: Vehicle[]; records: WorkshopRecord[]; attachments: Attachment[]; activity: Activity[];
+  repairTimeMinutes: number;
 }
 export const dataDir = path.resolve(process.env.NITRO_DATA_DIR || ".workshop-data");
 let queue: Promise<unknown> = Promise.resolve();
@@ -19,7 +20,7 @@ export function transact<T>(operation: (store: Store) => T | Promise<T>, write =
     try { db = JSON.parse(await fs.readFile(path.join(dataDir, "workspace.json"), "utf8")); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      db = { name: "My workshop", vmUrl: "", users: [], sessions: [], vehicles: [], records: [], attachments: [], activity: [] };
+      db = { name: "My workshop", vmUrl: "", users: [], sessions: [], vehicles: [], records: [], attachments: [], activity: [], repairTimeMinutes: 0 };
     }
     const result = await operation(db);
     if (write) {
@@ -72,6 +73,7 @@ export function workspace(db: Store, user?: StoredUser): Workspace {
     name: user ? db.name : "My workshop", vmUrl: user ? db.vmUrl : "",
     vehicles: user ? db.vehicles : [], records: user ? db.records : [],
     attachments: user ? db.attachments : [], activity: user ? db.activity : [],
+    repairTimeMinutes: db.repairTimeMinutes || 0,
     users: user?.role === "admin" ? db.users.map(publicUser) : [],
   };
 }

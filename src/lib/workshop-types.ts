@@ -8,7 +8,7 @@ export interface Vehicle {
 }
 export interface WorkshopRecord {
   id: string; kind: RecordKind; title: string; vehicleId: string; category: string;
-  content: string; date: string; mileage: string; createdAt: string; updatedAt: string; createdBy: string;
+  content: string; date: string; mileage: string; repairTimeMinutes: number; createdAt: string; updatedAt: string; createdBy: string;
 }
 export interface Attachment {
   id: string; recordId: string; name: string; type: string; size: number; createdAt: string; createdBy: string;
@@ -28,4 +28,5 @@ export const sectionTitles: Record<Section, string> = {
 export const emptyWorkspace: Workspace = {
   setupRequired: false, user: null, name: "My workshop", vmUrl: "", vehicles: [],
   records: [], attachments: [], activity: [], users: [],
+  repairTimeMinutes: 0
 };
