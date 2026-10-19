@@ -1,0 +1,12 @@
+node_modules
+.git
+.dyad
+.workshop-data
+.output
+.nitro
+dist
+dist-ssr
+.env
+.env.*
+*.log
+src/ADCDA2

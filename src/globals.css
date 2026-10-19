@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 100 14% 97%;
+    --foreground: 159 17% 19%;
+    --card: 0 0% 100%;
+    --card-foreground: 159 17% 19%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 159 17% 19%;
+    --primary: 175 77% 26%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 145 19% 93%;
+    --secondary-foreground: 159 17% 19%;
+    --muted: 120 9% 94%;
+    --muted-foreground: 150 7% 44%;
+    --accent: 153 25% 94%;
+    --accent-foreground: 175 77% 26%;
+    --destructive: 0 65% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 130 11% 89%;
+    --input: 130 11% 86%;
+    --ring: 175 77% 26%;
+    --radius: 0.75rem;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 159 17% 19%;
+    --sidebar-primary: 175 77% 26%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 153 25% 94%;
+    --sidebar-accent-foreground: 175 77% 26%;
+    --sidebar-border: 130 11% 89%;
+    --sidebar-ring: 175 77% 26%;
+  }
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground antialiased; font-family: "DM Sans", sans-serif; }
+  button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
+  button:focus-visible, a:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 3px; }
+  ::selection { background: hsl(var(--primary) / 0.16); }
+}
+@layer utilities {
+  .font-heading { font-family: "Manrope", sans-serif; }
+}

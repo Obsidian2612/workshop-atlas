@@ -1,0 +1,22 @@
+services:
+  workshop-atlas:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${WORKSHOP_PORT:-3000}:3000"
+    environment:
+      NITRO_DATA_DIR: /data
+      NITRO_HOST: 0.0.0.0
+      NITRO_PORT: "3000"
+      NITRO_SETUP_KEY: "${WORKSHOP_SETUP_KEY:?Set a unique WORKSHOP_SETUP_KEY in your Docker manager before deployment}"
+    volumes:
+      - workshop-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  workshop-data:
