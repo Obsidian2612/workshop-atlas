@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID, randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
 import { createError } from "nitro/h3";
-import type { Attachment, Activity, User, Vehicle, WorkshopRecord, Workspace } from "../../src/lib/workshop-types";
+import type { Attachment, Activity, RepairTimeEntry, User, Vehicle, WorkshopRecord, Workspace } from "../../src/lib/workshop-types";
 
 type StoredUser = User & { password: string };
 type Session = { hash: string; userId: string; expires: number };
@@ -10,6 +10,9 @@ export interface Store {
   name: string; vmUrl: string; users: StoredUser[]; sessions: Session[];
   vehicles: Vehicle[]; records: WorkshopRecord[]; attachments: Attachment[]; activity: Activity[];
   repairTimeMinutes: number;
+  // Licensed repair-time data keyed by upper-case VIN. Entries carry no source;
+  // the source is attached when they are copied onto a vehicle.
+  repairTimesByVin?: Record<string, Omit<RepairTimeEntry, "source">[]>;
 }
 export const dataDir = path.resolve(process.env.NITRO_DATA_DIR || ".workshop-data");
 let queue: Promise<unknown> = Promise.resolve();
@@ -20,7 +23,7 @@ export function transact<T>(operation: (store: Store) => T | Promise<T>, write =
     try { db = JSON.parse(await fs.readFile(path.join(dataDir, "workspace.json"), "utf8")); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      db = { name: "My workshop", vmUrl: "", users: [], sessions: [], vehicles: [], records: [], attachments: [], activity: [], repairTimeMinutes: 0 };
+      db = { name: "My workshop", vmUrl: "", users: [], sessions: [], vehicles: [], records: [], attachments: [], activity: [], repairTimeMinutes: 0, repairTimesByVin: {} };
     }
     const result = await operation(db);
     if (write) {

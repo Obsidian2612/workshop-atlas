@@ -67,6 +67,70 @@ If the VM already has a browser-based remote-desktop gateway (for example Guacam
 
 Before importing legacy information, confirm your version, an authorised export/API, your reuse permission and an actual sample export. Binary `.IDF` files are not supported as imports. Safety-critical specifications entered by users must be verified against an authorised source.
 
+## Running beside a Windows XP VM
+
+Workshop Atlas cannot run inside Windows XP. The server needs Node.js 24 (the official 64-bit build requires Windows 8.1 or later) and Docker, and Windows XP's last browsers (IE8, Chrome 49, Firefox 52 ESR) cannot execute the React 19 bundle. Keep the XP guest for Autodata and put the app on a small Linux VM next to it.
+
+Suggested topology on one hypervisor (Hyper-V, VMware Workstation or VirtualBox):
+
+| VM | Purpose | Network |
+| --- | --- | --- |
+| Ubuntu Server 24.04 LTS | Docker Engine + Workshop Atlas | Bridged adapter, DHCP reservation or static IP |
+| Windows XP | Autodata only | Host-only or isolated internal network |
+| Optional gateway VM/container | Guacamole or noVNC, publishes the XP desktop over HTTP(S) | Reachable from the workshop LAN, not the internet |
+
+Steps on the Linux VM:
+
+1. Install Docker Engine and the Compose plugin, then clone this repository.
+2. Create `.env` with `WORKSHOP_PORT=3000` (or another free port) and run `docker compose up -d --build`.
+3. Allow only that port through the VM firewall, and keep the service on the workshop LAN behind your reverse proxy and HTTPS.
+4. Open `http://LINUX-VM-IP:3000`, create the administrator account, then add the gateway URL in **Settings → Browser-accessible VM URL**. **Autodata connection** will open the XP desktop in a new tab.
+
+Do not expose the XP guest directly to the internet, and do not attempt to install this Node application on XP through compatibility shims. The VM shortcut in the app is a link to a gateway you run yourself; it does not set up remote access.
+
+## Repair time data
+
+Repair times can come from two places, and both are optional.
+
+### Licensed provider API
+
+Set these on the server (or in the compose environment):
+
+| Variable | Purpose |
+| --- | --- |
+| `REPAIR_API_URL` | Provider endpoint that accepts a VIN lookup; leave empty to disable provider calls |
+| `REPAIR_API_KEY` | Optional bearer token sent as `Authorization: Bearer …` |
+| `REPAIR_API_TIMEOUT_MS` | Lookup timeout, default `5000` |
+
+The app sends `GET REPAIR_API_URL?vin=…&make=…&model=…&year=…` and expects JSON in one of these shapes:
+
+```json
+{ "operations": [ { "operation": "Brake pads front", "minutes": 90 } ] }
+```
+
+```json
+[ { "operation": "Brake pads front", "minutes": 90 } ]
+```
+
+`repairTimes`, `data` and `results` array keys are also accepted, and each item may use `minutes`, `min` or `time`. Lookups run after a vehicle with a VIN is saved, never block the save, and are cached for 24 hours per vehicle. **Refresh** on the vehicle page forces a new lookup. Provider failures are logged server-side and never discard existing data.
+
+### CSV or JSON import
+
+Administrators can paste a licensed export in **Settings → Repair time data**. CSV needs a header row with `vin`, `operation` and `minutes`:
+
+```csv
+vin,operation,minutes
+WV2ZZZ2KZKX135899,Brake pads front,90
+```
+
+JSON accepts an array (or an object keyed by VIN) of `{ "vin", "operation", "minutes" }`. Imports are capped at 2 MB / 5000 rows, merge by VIN and operation, and are applied immediately to any vehicle already carrying a matching VIN. VINs are matched case-insensitively; minutes must be whole numbers from 0 to 1440.
+
+Only import or query data your licence permits you to reuse outside the original application. Autodata `.IDF` files are not readable input, and this feature does not decrypt or scrape them.
+
+## Partsouq vehicle lookup
+
+When a vehicle has a VIN, its page offers **Search VIN on Partsouq**, which opens `https://partsouq.com/en/search/all?q=VIN` in a new tab. This is a convenience link only: Workshop Atlas does not scrape Partsouq, does not send your credentials, and does not store Partsouq data. Partsouq's own API is partner-only; request access from them if you need automated catalogue data.
+
 ## Local preview
 
 In development, local records are stored in `.workshop-data/` at the application root (ignored by Git). Do not put this directory under `public/` or `src/`. The local preview and deployed Docker instance have separate data unless you intentionally restore a complete volume backup.

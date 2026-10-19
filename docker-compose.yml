@@ -11,6 +11,10 @@ services:
       # Optional. When set, creating the first administrator requires this key.
       # Leave it empty only on a host nobody else can reach before setup finishes.
       NITRO_SETUP_KEY: "${WORKSHOP_SETUP_KEY:-}"
+      # Optional repair-time provider (see DEPLOYMENT.md). Empty disables lookups.
+      REPAIR_API_URL: "${REPAIR_API_URL:-}"
+      REPAIR_API_KEY: "${REPAIR_API_KEY:-}"
+      REPAIR_API_TIMEOUT_MS: "${REPAIR_API_TIMEOUT_MS:-5000}"
     volumes:
       - workshop-data:/data
     read_only: true

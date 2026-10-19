@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { dataDir, fail, logActivity, requireUser, text, transact } from "../../utils/store";
+import { refreshVehicleRepairTimes } from "../../utils/repair-times";
 
 export default defineHandler(async event => {
   const body = await readBody<Record<string, unknown>>(event);
@@ -42,6 +43,11 @@ export default defineHandler(async event => {
       const vehicle = { ...common, make: text(body.make, "Make", 80, true), model: text(body.model, "Model", 100, true), year,
         engine: text(body.engine, "Engine", 100), registration: text(body.registration, "Registration", 30), vin: text(body.vin, "VIN", 30),
         customer: text(body.customer, "Customer", 200), specifications: text(body.specifications, "Specifications", 20000) };
+      const vin = vehicle.vin ? vehicle.vin.toUpperCase() : "";
+      const imported = vin ? db.repairTimesByVin?.[vin] : undefined;
+      if (imported?.length) {
+        Object.assign(vehicle, { repairTimes: imported.map(entry => ({ ...entry, source: "imported" as const })), repairTimesSource: "imported", repairTimesUpdatedAt: now });
+      }
       db.vehicles = [vehicle, ...db.vehicles.filter(v => v.id !== vehicle.id)];
       logActivity(db, user, `${existing ? "Updated" : "Added"} ${vehicle.make} ${vehicle.model}`);
       return vehicle;
@@ -65,5 +71,9 @@ export default defineHandler(async event => {
     return record;
   }, true);
   await Promise.all(removedFiles.map(id => fs.rm(path.join(dataDir, "attachments", `${id}.bin`), { force: true })));
+  if (entity === "vehicle" && action === "save" && process.env.REPAIR_API_URL) {
+    const saved = result as { id?: string; vin?: string };
+    if (saved?.id && saved.vin) void refreshVehicleRepairTimes(saved.id, true).catch(error => console.warn("Repair-time refresh failed", error));
+  }
   return result;
 });

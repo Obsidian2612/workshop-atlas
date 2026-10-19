@@ -1,9 +1,12 @@
 export type Role = "admin" | "editor" | "viewer";
 export type RecordKind = "procedure" | "note" | "service";
+export type RepairTimeSource = "imported" | "provider" | "manual";
+export interface RepairTimeEntry { operation: string; minutes: number; source: RepairTimeSource }
 export interface User { id: string; name: string; email: string; role: Role }
 export interface Vehicle {
   id: string; make: string; model: string; year: string; engine: string;
   registration: string; vin: string; customer: string; specifications: string;
+  repairTimes?: RepairTimeEntry[]; repairTimesSource?: string; repairTimesUpdatedAt?: string;
   createdAt: string; updatedAt: string; createdBy: string;
 }
 export interface WorkshopRecord {
