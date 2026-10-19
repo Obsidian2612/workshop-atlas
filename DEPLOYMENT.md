@@ -21,6 +21,26 @@ Workshop Atlas is a native web companion for your own workshop information. It d
 6. Configure HTTPS using your existing reverse proxy before other users sign in. Do not expose the service to the public internet or port-forward it. Keep the setup key private; it is not an account password and cannot reset an existing workspace.
 7. Add team members in **Settings & members**. Share initial credentials securely. Each terminal signs in with its own account.
 
+## Troubleshooting a stack deploy
+
+The compose file only publishes one host port, so almost every first-deploy failure is about that port or an optional variable. All three messages below come from the manager, not the application.
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| `open /data/compose/<id>/docker-compose.yml: no such file or directory` | the manager looked for `docker-compose.yml` and the checkout had a different filename or an older commit | use commit `f7b1baa` or later, leave the compose path at `docker-compose.yml`, and update/re-pull the stack instead of only redeploying |
+| `required variable WORKSHOP_SETUP_KEY is missing a value` | an older compose file hard-required the variable | use `6b254d6` or later, where it is optional |
+| `Bind for :::3000 failed: port is already allocated` | another container or service on the host already publishes port 3000 | set `WORKSHOP_PORT` to a free host port in the stack's environment variables and redeploy; the container always listens on 3000 internally |
+
+To find what holds a port on the Docker host:
+
+```bash
+docker ps --format '{{.Names}} => {{.Ports}}' | grep 3000
+```
+
+Do not stop an unrelated container just to free 3000; setting `WORKSHOP_PORT` to something like `3100` is enough, and the app is reachable at that port instead.
+
+After any change to environment variables or the compose file, choose **Update the stack** or **Pull and redeploy** so the checkout is refreshed. A plain redeploy can reuse the previous clone and repeat the same error.
+
 The Docker image contains built assets and the server only. `src/ADCDA2`, local data, dotenv files and repository metadata are excluded from its build context. Custom visuals and fonts are bundled locally, with no external image or font service required at runtime.
 
 ## Permissions

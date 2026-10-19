@@ -21,7 +21,7 @@ This repository is built as a compose-based stack. From the repository root:
 docker compose up --build
 ```
 
-The default service binds port `3000`. The first administrator is created through the on-screen setup flow, using a setup key if one is configured on the server.
+The default service binds port `3000`. Set `WORKSHOP_PORT` to use a different host port, for example `WORKSHOP_PORT=3100 docker compose up --build`, if something else already occupies 3000. The first administrator is created through the on-screen setup flow, using a setup key if one is configured on the server.
 
 ## Deployment notes
 
