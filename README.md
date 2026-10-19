@@ -31,7 +31,7 @@ See `DEPLOYMENT.md` for compose settings, secrets, permissions, backup guidance 
 
 - `src/` — React app and shared types.
 - `server/` — Nitro API routes and the on-disk store.
-- `Dockerfile`, `compose.yaml` — single-instance self-hosted deployment.
+- `Dockerfile`, `docker-compose.yml` — single-instance self-hosted deployment.
 - `public/` — locally bundled images and favicon.
 
 ## License

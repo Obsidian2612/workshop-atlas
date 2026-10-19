@@ -9,11 +9,11 @@ Workshop Atlas is a native web companion for your own workshop information. It d
 - Private JPG, PNG, WebP, PDF and TXT attachments, up to 10 MB each, linked to vehicles or records.
 - Administrator-controlled member creation, role changes, password resets and removal.
 - JSON export of your own records and an optional shortcut to an existing browser-accessible VM gateway.
-- Dockerfile and `compose.yaml` for a single self-hosted application instance.
+- Dockerfile and `docker-compose.yml` for a single self-hosted application instance.
 
 ## Deploy using your Docker management interface
 
-1. Place this application's repository on the Docker server and select it as the build context in your Docker manager. Use the supplied `Dockerfile` and `compose.yaml`. For Portainer or a similar manager, use a repository/stack configuration that supports building from this directory; a pasted stack alone does not upload the application's source.
+1. Place this application's repository on the Docker server and select it as the build context in your Docker manager. Use the supplied `Dockerfile` and `docker-compose.yml`. For Portainer or a similar manager, use a repository/stack configuration that supports building from this directory; a pasted stack alone does not upload the application's source. The compose file is deliberately named `docker-compose.yml`, because managers such as Portainer default to that filename and otherwise fail with `open .../docker-compose.yml: no such file or directory`.
 2. Set `WORKSHOP_SETUP_KEY` to a unique secret in your Docker manager's environment settings. The Compose file requires it. Optionally set `WORKSHOP_PORT` (default 3000).
 3. Keep the `workshop-data` named volume mounted at `/data`. Do not replace it with temporary container storage. The application runs as the non-root `node` user (UID 1000); a bind mount must be writable by that user.
 4. Deploy **one replica only**. This version uses a serialized, atomically written JSON store, not a multi-instance database. All terminals access that same server. Records refresh automatically every 30 seconds and when a tab regains focus.
