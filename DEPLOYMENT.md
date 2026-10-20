@@ -7,6 +7,7 @@ Workshop Atlas is a native web companion for your own workshop information. It d
 - React dashboard and searchable vehicles, specifications, procedures, repair notes and service histories.
 - Local server-side accounts, password hashing, expiring sessions and viewer/editor/administrator permissions.
 - Private JPG, PNG, WebP, PDF and TXT attachments, up to 10 MB each, linked to vehicles or records.
+- Administrator-uploaded repair-time PDF sheets, kept privately per vehicle and opened by any signed-in user.
 - Administrator-controlled member creation, role changes, password resets and removal.
 - JSON export of your own records and an optional shortcut to an existing browser-accessible VM gateway.
 - Dockerfile and `docker-compose.yml` for a single self-hosted application instance.
@@ -16,7 +17,7 @@ Workshop Atlas is a native web companion for your own workshop information. It d
 1. Place this application's repository on the Docker server and select it as the build context in your Docker manager. Use the supplied `Dockerfile` and `docker-compose.yml`. For Portainer or a similar manager, use a repository/stack configuration that supports building from this directory; a pasted stack alone does not upload the application's source. The compose file is deliberately named `docker-compose.yml`, because managers such as Portainer default to that filename and otherwise fail with `open .../docker-compose.yml: no such file or directory`.
 2. Optionally set `WORKSHOP_SETUP_KEY` to a unique secret in your Docker manager's environment settings. When it is set, creating the first administrator requires typing that key. When it is empty the app still deploys and setup still works, but anyone who can reach the app before setup finishes can claim the administrator account, so set a key on any host other people can reach. Also optionally set `WORKSHOP_PORT` (default 3000).
 3. Keep the `workshop-data` named volume mounted at `/data`. Do not replace it with temporary container storage. The application runs as the non-root `node` user (UID 1000); a bind mount must be writable by that user.
-4. Deploy **one replica only**. This version uses a serialized, atomically written JSON store, not a multi-instance database. All terminals access that same server. Records refresh automatically every 30 seconds and when a tab regains focus.
+4. Deploy **one replica only**. This version keeps everything in one SQLite database (`workshop.sqlite`) with transactional, per-row writes — not a multi-instance database. All terminals access that same server. Records refresh automatically every 30 seconds and when a tab regains focus.
 5. Initially restrict access to the administrator. Open `http://YOUR-SERVER-IP:3000` (or the configured port), select **Set up workspace**, and enter the setup key to create the first administrator. Use a password of at least 12 characters.
 6. Configure HTTPS using your existing reverse proxy before other users sign in. Do not expose the service to the public internet or port-forward it. Keep the setup key private; it is not an account password and cannot reset an existing workspace.
 7. Add team members in **Settings & members**. Share initial credentials securely. Each terminal signs in with its own account.
@@ -57,9 +58,13 @@ Every API request enforces permissions server-side. Passwords use salted scrypt 
 
 ## Backup and restore
 
-For a complete backup, stop the application and take a snapshot/archive of the entire `workshop-data` volume using your Docker manager's backup facility. It contains `workspace.json` (including accounts) and the `attachments` directory. Treat this backup as private customer information.
+For a complete backup, stop the application and take a snapshot/archive of the entire `workshop-data` volume using your Docker manager's backup facility. It contains `workshop.sqlite` (workspace data, accounts and sessions), the `attachments` directory and the `repair-times-pdfs` directory. While the server is running, SQLite also keeps `workshop.sqlite-wal` and `workshop.sqlite-shm` beside the database; copy all three together if you copy a live volume by hand. Treat this backup as private customer information.
 
 Restore the entire volume while the application is stopped, preserving filesystem permissions, then start the same application version. The **Export workshop records** button downloads JSON record data and attachment metadata, not the attachments themselves or account credentials; it is not a complete restore archive. No restore/import upload screen is provided in this version.
+
+### Upgrading from the JSON store
+
+Earlier versions kept everything in `workspace.json`. On first start the server imports that file into `workshop.sqlite` once, records the import in the database, and leaves `workspace.json` untouched as a pre-migration copy; later restarts never import it again. Check the vehicles, records, attachments and accounts in the app, then delete `workspace.json` from the volume once you trust the import. Restoring a legacy `workspace.json` into a volume that already has a populated `workshop.sqlite` does not change anything — stop the app, remove the database files, and let the next start import the JSON.
 
 ## Existing Autodata VM
 
@@ -126,6 +131,10 @@ WV2ZZZ2KZKX135899,Brake pads front,90
 JSON accepts an array (or an object keyed by VIN) of `{ "vin", "operation", "minutes" }`. Imports are capped at 2 MB / 5000 rows, merge by VIN and operation, and are applied immediately to any vehicle already carrying a matching VIN. VINs are matched case-insensitively; minutes must be whole numbers from 0 to 1440.
 
 Only import or query data your licence permits you to reuse outside the original application. Autodata `.IDF` files are not readable input, and this feature does not decrypt or scrape them.
+
+### Uploaded PDF sheets
+
+**Settings → Repair time PDFs** stores a printed repair-time sheet (PDF, 10 MB maximum) for a vehicle or for the whole workshop. Files live in the `repair-times-pdfs` directory inside the data volume and are served only to signed-in users; uploading and deleting require an administrator. The sheet is kept as reference material — its contents are not parsed into repair-time entries, so use the CSV/JSON import for data you want applied to a vehicle.
 
 ## Partsouq vehicle lookup
 

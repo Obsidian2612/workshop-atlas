@@ -13,6 +13,7 @@ export default defineHandler(async event => {
   const action = text(body.action, "Action", 20, true);
   if (!["vehicle", "record", "attachment"].includes(entity) || !["save", "delete"].includes(action)) fail(400, "Unknown operation");
   const removedFiles: string[] = [];
+  const removedSheets: string[] = [];
   const result = await transact(db => {
     const user = requireUser(db, event.req, "write");
     const id = text(body.id, "ID", 80);
@@ -25,7 +26,12 @@ export default defineHandler(async event => {
       const files = db.attachments.filter(a => entity === "attachment" ? a.id === id : deleteIds.has(a.recordId));
       removedFiles.push(...files.map(f => f.id));
       db.attachments = db.attachments.filter(a => !files.some(f => f.id === a.id));
-      if (entity === "vehicle") { db.vehicles = db.vehicles.filter(v => v.id !== id); db.records = db.records.filter(r => r.vehicleId !== id); }
+      if (entity === "vehicle") {
+        db.vehicles = db.vehicles.filter(v => v.id !== id); db.records = db.records.filter(r => r.vehicleId !== id);
+        const sheets = (db.repairTimePdfs || []).filter(pdf => pdf.vehicleId === id);
+        removedSheets.push(...sheets.map(sheet => sheet.id));
+        db.repairTimePdfs = (db.repairTimePdfs || []).filter(pdf => pdf.vehicleId !== id);
+      }
       if (entity === "record") db.records = db.records.filter(r => r.id !== id);
       const label = "title" in item ? item.title : "model" in item ? `${item.make} ${item.model}` : item.name;
       logActivity(db, user, `Deleted ${label}`);
@@ -71,6 +77,7 @@ export default defineHandler(async event => {
     return record;
   }, true);
   await Promise.all(removedFiles.map(id => fs.rm(path.join(dataDir, "attachments", `${id}.bin`), { force: true })));
+  await Promise.all(removedSheets.map(id => fs.rm(path.join(dataDir, "repair-times-pdfs", `${id}.pdf`), { force: true })));
   if (entity === "vehicle" && action === "save" && process.env.REPAIR_API_URL) {
     const saved = result as { id?: string; vin?: string };
     if (saved?.id && saved.vin) void refreshVehicleRepairTimes(saved.id, true).catch(error => console.warn("Repair-time refresh failed", error));

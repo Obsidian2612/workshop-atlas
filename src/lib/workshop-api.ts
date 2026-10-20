@@ -28,6 +28,14 @@ export async function download(path: string, name: string) {
   link.href = url; link.download = name; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+export async function fileUrl(path: string) {
+  const response = await request(path);
+  return URL.createObjectURL(await response.blob());
+}
+export async function uploadFile(path: string, formData: FormData): Promise<unknown> {
+  const response = await request(path, { method: "POST", body: formData });
+  return response.json();
+}
 export function useWorkspace() {
   const [data, setData] = useState<Workspace>(emptyWorkspace);
   const [loading, setLoading] = useState(true);

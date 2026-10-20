@@ -72,7 +72,7 @@ Any package used inside `server/` (database drivers like `@neondatabase/serverle
 
 ## Workshop Atlas foundations
 
-- Self-hosted, single-replica local storage uses `server/utils/store.ts`: serialized atomic JSON writes and private attachments in `NITRO_DATA_DIR` (default `.workshop-data`, Docker `/data`). Never put records, credentials or attachments in public assets or browser storage.
+- Self-hosted, single-replica local storage uses `server/utils/store.ts`: one SQLite database (`workshop.sqlite`, WAL journal, transactions with per-row writes) plus private attachment directories in `NITRO_DATA_DIR` (default `.workshop-data`, Docker `/data`). Routes still work with the in-memory `Store` inside `transact()`; keep writes inside that callback so they commit atomically. Never put records, credentials or attachments in public assets or browser storage.
 - Every private API must use `requireUser`; viewers read, editors maintain records, administrators also manage accounts/settings. Session tokens use tab-local session storage; server stores only session hashes and salted scrypt password hashes.
 - Preserve `src/ADCDA2` unchanged and excluded from Docker/public assets. No legacy Autodata content has been imported; do not invent specifications or imply the binary files are readable. Import work requires verified format and reuse permission.
 - Routes stay in `src/App.tsx`. Use the centralized teal palette and locally bundled fonts/assets. Deployment and backup details are in `DEPLOYMENT.md`.

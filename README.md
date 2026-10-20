@@ -2,7 +2,7 @@
 
 Workshop Atlas is a small self-hosted web app for a workshop's own knowledge: vehicles, specifications, procedures, repair notes, service history, attachments and team accounts. It is not a conversion of the original workshop software, and it does not import or decrypt that software's files.
 
-The stack is React plus a Nitro server layer. The server stores everything locally in one JSON data file and a private attachments directory. Accounts, sessions and permissions are enforced server-side.
+The stack is React plus a Nitro server layer. The server stores everything locally in one SQLite database, a private attachments directory and a private repair-time PDF directory. Accounts, sessions and permissions are enforced server-side.
 
 ## Run it locally
 

@@ -17,10 +17,13 @@ export interface Attachment {
   id: string; recordId: string; name: string; type: string; size: number; createdAt: string; createdBy: string;
 }
 export interface Activity { id: string; text: string; at: string; actor: string }
+export interface RepairTimePdf { id: string; vehicleId: string | null; name: string; size: number; createdAt: string; createdBy: string }
 export interface Workspace {
   setupRequired: boolean; user: User | null; name: string; vmUrl: string;
-  vehicles: Vehicle[]; records: WorkshopRecord[]; attachments: Attachment[];
-  activity: Activity[]; users: User[];
+  vehicles: Vehicle[]; records: WorkshopRecord[]; attachments: Attachment[]; activity: Activity[]; users: User[];
+  repairTimeMinutes: number;
+  // Uploaded repair-time sheets (PDF prints). Only administrators receive them.
+  repairTimePdfs?: RepairTimePdf[];
 }
 export type Section = "overview" | "vehicles" | "procedures" | "notes" | "history" | "attachments" | "legacy" | "settings";
 export const sectionTitles: Record<Section, string> = {
@@ -29,7 +32,7 @@ export const sectionTitles: Record<Section, string> = {
   legacy: "Autodata connection", settings: "Workspace settings",
 };
 export const emptyWorkspace: Workspace = {
-  setupRequired: false, user: null, name: "My workshop", vmUrl: "", vehicles: [],
-  records: [], attachments: [], activity: [], users: [],
+  setupRequired: false, user: null, name: "My workshop", vmUrl: "",
+  vehicles: [], records: [], attachments: [], activity: [], users: [],
   repairTimeMinutes: 0
 };
