@@ -134,7 +134,11 @@ Only import or query data your licence permits you to reuse outside the original
 
 ### Uploaded PDF sheets
 
-**Settings → Repair time PDFs** stores a printed repair-time sheet (PDF, 10 MB maximum) for a vehicle or for the whole workshop. Files live in the `repair-times-pdfs` directory inside the data volume and are served only to signed-in users; uploading and deleting require an administrator. The sheet is kept as reference material — its contents are not parsed into repair-time entries, so use the CSV/JSON import for data you want applied to a vehicle.
+**Settings → Repair time PDFs** stores a printed repair-time sheet (PDF, 10 MB maximum) for a vehicle or for the whole workshop. Files live in the `repair-times-pdfs` directory inside the data volume and are served only to signed-in users; uploading and deleting require an administrator.
+
+**Read times** parses the sheet and shows its operations (code, description and duration) before anything is written. **Apply** writes them to the vehicle you pick in the dialog, which defaults to the sheet's own vehicle, so one sheet can also be applied to a different vehicle. Re-applying the same sheet replaces operations with the same code instead of duplicating them, and when the target vehicle has a VIN the same entries join the licensed dataset for future lookups.
+
+The reader works on the PDF's text layer: printed sheets from catalogue or terminal software read correctly, while scans and photographs of a sheet have no text to read and are reported as unreadable. Column layout is taken from text positions, so the code, description, type, hours and price are separated even when the generator prints them as separate runs. Minutes are rounded from decimal hours. Only import data your licence allows you to reuse.
 
 ## Partsouq vehicle lookup
 

@@ -5,6 +5,40 @@ const maxRows = 5000;
 const maxText = 2_000_000;
 const providerTimeout = Number(process.env.REPAIR_API_TIMEOUT_MS) || 5000;
 
+/**
+ * Apply the operations parsed from an uploaded sheet to one vehicle.
+ * When the vehicle has a VIN the same entry keys are also written to the global
+ * licensed dataset, so future vehicle lookups and other refresh actions can use them.
+ */
+export async function applySheetRepairTimes(vehicleId: string, operations: { operation: string; minutes: number }[]) {
+  const now = new Date().toISOString();
+  return transact(db => {
+    const vehicle = db.vehicles.find(v => v.id === vehicleId);
+    if (!vehicle) return null;
+    const merged = new Map<string, RepairTimeEntry>();
+    for (const entry of vehicle.repairTimes || []) merged.set(entry.operation.toLowerCase(), entry);
+    for (const entry of operations) merged.set(entry.operation.toLowerCase(), { operation: entry.operation, minutes: entry.minutes, source: "imported" as const });
+    vehicle.repairTimes = [...merged.values()].sort((a, b) => a.operation.localeCompare(b.operation));
+    const sources = new Set(vehicle.repairTimes.map(e => e.source));
+    vehicle.repairTimesSource = sources.has("provider") ? "provider + imported" : Array.from(sources).join(" + ") || "imported";
+    vehicle.repairTimesUpdatedAt = now;
+    if (vehicle.vin) {
+      const key = vehicle.vin.toUpperCase();
+      const dataset = { ...(db.repairTimesByVin || {}) };
+      const list = [...(dataset[key] || [])];
+      const index = new Map(list.map((entry, i) => [entry.operation.toLowerCase(), i]));
+      for (const entry of operations) {
+        const existing = index.get(entry.operation.toLowerCase());
+        if (existing === undefined) { index.set(entry.operation.toLowerCase(), list.length); list.push({ operation: entry.operation, minutes: entry.minutes }); }
+        else list[existing] = { operation: entry.operation, minutes: entry.minutes };
+      }
+      dataset[key] = list;
+      db.repairTimesByVin = dataset;
+    }
+    return { operationCount: operations.length, vehicle };
+  }, true);
+}
+
 export type RepairTimeRow = { vin: string; operation: string; minutes: number };
 
 function cleanOperation(value: unknown) {

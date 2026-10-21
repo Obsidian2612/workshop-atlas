@@ -1,10 +1,11 @@
-import { defineHandler } from "nitro";
 import { readBody } from "nitro/h3";
 import { join } from "node:path";
 import { promises as fs } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { defineHandler } from "nitro";
 import { dataDir, fail, filename, logActivity, requireUser, transact, text } from "../../utils/store";
-import { importRepairTimes, parseRepairTimeImport, refreshVehicleRepairTimes } from "../../utils/repair-times";
+import { importRepairTimes, parseRepairTimeImport, refreshVehicleRepairTimes, applySheetRepairTimes } from "../../utils/repair-times";
+import { parseRepairSheet } from "../../utils/repair-sheet";
 
 const pdfLimit = 10 * 1024 * 1024;
 export default defineHandler(async event => {
@@ -48,7 +49,7 @@ export default defineHandler(async event => {
     const form = await new Response(Buffer.concat(chunks), { headers: { "content-type": event.req.headers.get("content-type") || "" } }).formData();
     const file = form.get("file");
     if (!(file instanceof File) || !file.size) fail(400, "No file attached");
-    if (!file.type.includes("pdf")) fail(400, "Please upload a PDF repair-time sheet");
+    if (!file.type.includes("pdf") && !file.name.toLowerCase().endsWith(".pdf")) fail(400, "Please upload a PDF repair-time sheet");
     if (file.size > pdfLimit) fail(413, "PDF is too large (10 MB maximum)");
     const requestedVehicle = text(form.get("vehicleId"), "Vehicle", 80, false);
     const id = randomUUID();
@@ -79,8 +80,50 @@ export default defineHandler(async event => {
     }
   }
 
+  if (action === "extract") {
+    const id = typeof body.id === "string" ? body.id.trim() : "";
+    if (!id) fail(400, "Choose a repair-time PDF");
+    const sheet = await transact(db => { requireUser(db, event.req, "admin"); return (db.repairTimePdfs || []).find(pdf => pdf.id === id); });
+    if (!sheet) fail(404, "Repair-time PDF not found");
+    let bytes: Buffer;
+    try { bytes = await fs.readFile(join(dataDir, "repair-times-pdfs", `${sheet.id}.pdf`)); }
+    catch { fail(404, "The stored PDF file is missing"); }
+    const parsed = parseRepairSheet(bytes);
+    return { sheet: { id: sheet.id, name: sheet.name, vehicleId: sheet.vehicleId }, pages: parsed.pages, operations: parsed.operations };
+  }
+
+  if (action === "apply") {
+    const id = typeof body.id === "string" ? body.id.trim() : "";
+    if (!id) fail(400, "Choose a repair-time PDF");
+    // The sheet's own vehicle is the default target; the reader can pick another one.
+    const requested = typeof body.vehicleId === "string" ? body.vehicleId.trim() : "";
+    const targetVehicleId = await transact(db => {
+      requireUser(db, event.req, "admin");
+      const sheet = (db.repairTimePdfs || []).find(pdf => pdf.id === id);
+      if (!sheet) fail(404, "Repair-time PDF not found");
+      const target = requested || sheet.vehicleId;
+      if (!target) fail(400, "Choose the vehicle these times belong to");
+      const vehicle = db.vehicles.find(vehicle => vehicle.id === target);
+      if (!vehicle) fail(404, "That vehicle is not in this workshop");
+      return vehicle.id;
+    });
+    const bytes = await fs.readFile(join(dataDir, "repair-times-pdfs", `${id}.pdf`));
+    const parsed = parseRepairSheet(bytes);
+    await applySheetRepairTimes(targetVehicleId, parsed.operations);
+    const applied = await transact(db => {
+      const user = requireUser(db, event.req, "admin");
+      const sheet = (db.repairTimePdfs || []).find(pdf => pdf.id === id);
+      // Keep the sheet with the vehicle it was applied to, so later reads default to it.
+      if (sheet && !sheet.vehicleId) sheet.vehicleId = targetVehicleId;
+      const vehicle = db.vehicles.find(vehicle => vehicle.id === targetVehicleId);
+      logActivity(db, user, `Applied ${parsed.operations.length} repair-time operations from ${sheet?.name || "a sheet"} to ${vehicle ? `${vehicle.make} ${vehicle.model}`.trim() : "a vehicle"}`);
+      return { applied: parsed.operations.length, vehicleId: targetVehicleId };
+    }, true);
+    return { ...applied, skipped: parsed.skipped };
+  }
+
   if (action === "delete") {
-    const id = typeof body.id === "string" ? body.id : "";
+    const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) fail(400, "PDF ID is required");
     return transact(async db => {
       const user = requireUser(db, event.req, "admin");
