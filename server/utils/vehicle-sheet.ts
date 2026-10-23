@@ -30,13 +30,12 @@ const labels: Record<string, Field> = {
   "engine capacity": "capacity",
   "engine displacement": "capacity",
   displacement: "capacity",
-  "engine displacement": "capacity",
   torque: "torque",
   "engine torque": "torque",
 };
 
 function clean(value: string) {
-  return value.replace(/\s+/g, " ").replace(/^[\s:;.,\-–—|]+/, "").trim();
+  return value.replace(/\s+/g, " ").replace(/^[\s:;.,\\-–—|]+/, "").trim();
 }
 
 function labelKey(value: string): Field | null {
@@ -58,30 +57,12 @@ function usable(field: Field, raw: string): string | null {
     return match ? match[0] : null;
   }
   if (field === "make") return /[A-Za-z]{2}/.test(value) && value.length <= 40 ? value : null;
-  if (field === "model") return /[A-Za-z0-9]/.test(value) && value.length <= 60 ? value : null;    if (field === "capacity") return usableCapacity(value);
-    if (field === "torque") return usableTorque(value);
-    if (field === "engine") return usableEngine(value, found.capacity, found.torque);
-    if (/\bkw\b|\bdin\b/i.test(value) || value.length > 40) return null;
-    return value;
-  }
-
-  function usableCapacity(value: string): string | null {
-    const v = clean(value);
-    if (!v || v.length > 40) return null;
-    if (/^(all|any|none|n\/a|not recorded|not specified)$/i.test(v)) return null;
-    if (labelKey(v)) return null;
-    if (!/[\d]/.test(v)) return null;
-    return v;
-  }
-
-  function usableTorque(value: string): string | null {
-  const v = clean(value);
-  if (!v || v.length > 60) return null;
-  if (/^(all|any|none|n\/a|not recorded|not specified)$/i.test(v)) return null;
-  if (labelKey(v)) return null;
-  if (!/[\d]/.test(v)) return null;
-  if (/[A-Za-z]{2,}/.test(v) && /\d/.test(v) && !/[\d\.]+\s*[NmN\.m]/i.test(v)) return null;
-  return v;
+  if (field === "model") return /[A-Za-z0-9]/.test(value) && value.length <= 60 ? value : null;
+  if (field === "capacity") return usableCapacity(value);
+  if (field === "torque") return usableTorque(value);
+  if (field === "engine") return usableEngine(value);
+  if (/kw|din/i.test(value) || value.length > 40) return null;
+  return value;
 }
 
 function usableEngine(raw: string): string | null {
@@ -89,37 +70,31 @@ function usableEngine(raw: string): string | null {
   if (!value || value.length > 60) return null;
   if (/^(all|any|none|n\/a|not recorded|not specified)$/i.test(value)) return null;
   if (labelKey(value)) return null;
-  if (/\bhp\b|\bblbf?\b|\bk\s*\d/i.test(value) && /\d/.test(value)) return null;
-  if (/\bkw\b|\bdin\b/i.test(value)) return null;
+  if (/hp|\bblbf?\b|\bk\s*\d/i.test(value) && /\d/.test(value)) return null;
+  if (/kw|din/i.test(value)) return null;
   return value;
 }
+
+function usableCapacity(value: string): string | null {
+  const v = clean(value);
+  if (!v || v.length > 40) return null;
+  if (/^(all|any|none|n\/a|not recorded|not specified)$/i.test(v)) return null;
+  if (labelKey(v)) return null;
+  if (!/\d/.test(v)) return null;
+  return v;
+}
+
+function usableTorque(value: string): string | null {
+  const v = clean(value);
+  if (!v || v.length > 60) return null;
+  if (/^(all|any|none|n\/a|not recorded|not specified)$/i.test(v)) return null;
+  if (labelKey(v)) return null;
+  if (!/\d/.test(v)) return null;
+  if (/[A-Za-z]{2,}/.test(v) && /\d/.test(v) && !/\d{1,3}\s*[NmN\.m]/i.test(v)) return null;
+  return v;
+}
+
 export function parseVehicleIdentification(source: string): VehicleIdentification | null {
-  const lines = source.replace(/\r\n?/g, "\n").replace(/\u00a0/g, " ").split("\n").map(line => line.trim()).filter(Boolean);
-  const found: Partial<VehicleIdentification> = {};
-  const enginePanel = (table: { keys: (Field | null)[]; row: string[] }) => table.keys.includes("engine") && table.keys.includes("year");
-  const enginePanelTables = tables.filter(enginePanel);
-  for (const table of tables.filter(item => !enginePanel(item))) applyTable(table, false);
-  for (const table of enginePanelTables) applyTable(table, true);
-  const identification: VehicleIdentification = {
-    make: found.make ?? "",
-    model: found.model ?? "",
-    year: found.year ?? "",
-    engine: found.engine ?? "",
-    capacity: found.capacity ?? "",
-    torque: found.torque ?? "",
-  };
-  const values = Object.values(identification).filter(Boolean);
-  if (values.length < 2) return null;
-  if (!identification.make && !identification.model && !identification.engine) return null;
-  const identification: VehicleIdentification = {
-    make: found.make ?? "",
-    model: found.model ?? "",
-    year: found.year ?? "",
-    engine: found.engine ?? "",
-    capacity: found.capacity ?? "",
-    torque: found.torque ?? "",
-  };
-  const values = Object.values(identification).filter(Boolean);export function parseVehicleIdentification(source: string): VehicleIdentification | null {
   const lines = source.replace(/\r\n?/g, "\n").replace(/\u00a0/g, " ").split("\n").map(line => line.trim()).filter(Boolean);
   const found: Partial<VehicleIdentification> = {};
 
@@ -134,11 +109,13 @@ export function parseVehicleIdentification(source: string): VehicleIdentificatio
     const value = usableCapacity(raw);
     if (value) found.capacity = value;
   };
+
   const setTorque = (raw: string, override = false) => {
     if (found.torque && !override) return;
     const value = usableTorque(raw);
     if (value) found.torque = value;
   };
+
   const setEngine = (raw: string, override = false) => {
     if (found.engine && !override) return;
     const value = usableEngine(raw);
@@ -179,67 +156,18 @@ export function parseVehicleIdentification(source: string): VehicleIdentificatio
       break;
     }
   }
+
   const applyTable = (table: { keys: (Field | null)[]; row: string[] }, override: boolean) => {
     table.keys.forEach((field, index) => {
-      if (!field) return;      if (field === "capacity") setCapacity(table.row[index] ?? "", override);
+      if (!field) return;
+      if (field === "capacity") setCapacity(table.row[index] ?? "", override);
       else if (field === "torque") setTorque(table.row[index] ?? "", override);
       else if (field === "engine") setEngine(table.row[index] ?? "", override);
       else set(field, table.row[index] ?? "", override);
     });
   };
-  for (const table of tables.filter(item => !enginePanel(item))) applyTable(table, false);
-  for (const table of enginePanelTables) applyTable(table, true);
-  const identification: VehicleIdentification = {
-    make: found.make ?? "",
-    model: found.model ?? "",
-    year: found.year ?? "",
-    engine: found.engine ?? "",
-    capacity: found.capacity ?? "",
-    torque: found.torque ?? "",
-  };
-  const values = Object.values(identification).filter(Boolean);
-  if (values.length < 2) return null;
-  if (!identification.make && !identification.model && !identification.engine) return null;
-  const engine = usableEngine(identification.engine);
-  const capacity = usableCapacity(identification.capacity);
-  const torque = usableTorque(identification.torque);
-  if (enginePanelTables.length && engine && capacity && torque) {
-    identification.engine = engine;
-    identification.capacity = capacity;
-    identification.torque = torque;
-    return identification;
-  }
-  if (engine && capacity && torque) {
-    identification.engine = engine;
-    identification.capacity = capacity;
-    identification.torque = torque;
-    return identification;
-  }
-  const ez = usableEngine(identification.engine);
-  const cz = usableCapacity(identification.capacity);
-  const tz = usableTorque(identification.torque);
-  if (ez || cz || tz) {
-    identification.engine = ez ?? "";
-    identification.capacity = cz ?? "";
-    identification.torque = tz ?? "";
-    return identification;
-  }
-  return identification;
-}
 
-function clean(value: string) {
-  return value.replace(/\s+/g, " ").replace(/^[\s:;.,\-–—|]+/, "").trim();
-}
-
-    });
-  };
-  // The engine panel is applied last: it names the selected engine and the
-  // vehicle's year range, even when the picker list above holds many values.
-  const enginePanelHeader = (table: { keys: (Field | null)[] }) => table.keys.includes("engine") && table.keys.includes("year");
-  const enginePanelHeaderTables = tables.filter(enginePanelHeader);
-  const anyEnginePanelHeaderFillsCapacityTorque = enginePanelHeaderTables.some(ep => ep.row && (usableEngine(ep.row[ep.keys.indexOf("engine")] ?? "") || usableCapacity(ep.row[ep.keys.indexOf("capacity")] ?? "") || usableTorque(ep.row[ep.keys.indexOf("torque")] ?? "")));
-  for (const table of tables.filter(item => !enginePanelHeader(item))) applyTable(table, false);
-  for (const table of enginePanelHeaderTables) applyTable(table, true);
+  const enginePanel = (table: { keys: (Field | null)[] }) => table.keys.includes("engine") && table.keys.includes("year");
   for (const table of tables.filter(item => !enginePanel(item))) applyTable(table, false);
   for (const table of tables.filter(enginePanel)) applyTable(table, true);
 
@@ -259,9 +187,9 @@ function clean(value: string) {
       const altEngine = usableEngine(cells[2]);
       const altCapacity = usableCapacity(cells[3]);
       if (altEngine && altCapacity) return { make, model, year, engine: altEngine, capacity: altCapacity, torque: "" };
-      const capacity = usableCapacity(cells[2]);
-      const torque = usableTorque(cells[3]);
-      if (year && make && model && capacity && torque) return { make, model, year, engine: "", capacity, torque };
+      const capacity2 = usableCapacity(cells[2]);
+      const torque2 = usableTorque(cells[3]);
+      if (year && make && model && capacity2 && torque2) return { make, model, year, engine: "", capacity: capacity2, torque: torque2 };
     }
   }
 
@@ -273,12 +201,7 @@ function clean(value: string) {
     capacity: found.capacity ?? "",
     torque: found.torque ?? "",
   };
-  const engineFromRow = usableEngine(found.engine);
-  if (engineFromRow) identification.engine = engineFromRow;
-  const capacityFromRow = usableCapacity(found.capacity);
-  if (capacityFromRow) identification.capacity = capacityFromRow;
-  const torqueFromRow = usableTorque(found.torque);
-  if (torqueFromRow) identification.torque = torqueFromRow;
+
   const engineFromRow = usableEngine(found.engine);
   if (engineFromRow) identification.engine = engineFromRow;
   const capacityFromRow = usableCapacity(found.capacity);

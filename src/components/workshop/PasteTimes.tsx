@@ -34,7 +34,7 @@ export default function PasteTimes({ data, defaultVehicleId, close, refresh }: {
   const hasDetails = detailsAny;
   const hasDetailsCore = detailsCore;
   const hasDetailsEngine = detailsHaveEngine;
-  const creating = hasDetailsCore && createNew;
+  const creating = detailsCore && createNew;
   const canSaveDetails = hasDetails && (creating || vehicleId !== "none");
   const canApplyPaste = Boolean(parsed) && (operations.length > 0 || hasDetails) && (creating ? Boolean(details?.make.trim() && details?.model.trim()) : vehicleId !== "none");
   const [busy, setBusy] = useState<"read" | "apply" | "">("");
@@ -43,9 +43,8 @@ export default function PasteTimes({ data, defaultVehicleId, close, refresh }: {
   const operations = parsed?.operations ?? [];
   const total = operations.reduce((sum, operation) => sum + operation.minutes, 0);
   const hours = (minutes: number) => `${(minutes / 60).toFixed(2)} h`;
-  const hasDetails = Boolean(details && Object.values(details).some(value => value.trim()));
-  const creating = hasDetails && createNew;
-
+  const hasDetails2 = Boolean(details && Object.values(details).some(value => value.trim()));
+  const creating2 = hasDetails && createNew;
 
   function changeText(value: string) {
     setText(value);
@@ -77,7 +76,9 @@ export default function PasteTimes({ data, defaultVehicleId, close, refresh }: {
       }
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(""); }
-  }  async function applyPaste() {
+  }
+
+  async function applyPaste() {
     if (!parsed) return;
     const values = details ? { make: details.make.trim(), model: details.model.trim(), year: details.year.trim(), engine: details.engine.trim(), capacity: details.capacity.trim(), torque: details.torque.trim() } : null;
     if (values && creating && (!values.make || !values.model)) { setError("Make and model are needed to create a vehicle."); return; }
@@ -86,8 +87,9 @@ export default function PasteTimes({ data, defaultVehicleId, close, refresh }: {
     setBusy("apply"); setError("");
     try {
       let targetId = vehicleId;
-      let createdName = "";      if (values && hasDetails) {
-        if (creating) {
+      let createdName = "";
+      if (values && hasDetails2) {
+        if (creating2) {
           const created = await api<{ id: string }>("records", { action: "save", entity: "vehicle", ...values, registration: "", vin: "", customer: "", specifications: "", capacity: "", torque: "" });
           targetId = created.id;
           createdName = `${values.make} ${values.model}`.trim();
@@ -111,7 +113,7 @@ export default function PasteTimes({ data, defaultVehicleId, close, refresh }: {
       await refresh();
       const name = createdName || (vehicle ? `${vehicle.make} ${vehicle.model}`.trim() : "the vehicle");
       const parts: string[] = [];
-      if (values && hasDetails) parts.push(`${creating ? "Added" : "Updated"} ${name}`);
+      if (values && hasDetails2) parts.push(`${creating2 ? "Added" : "Updated"} ${name}`);
       if (applied) parts.push(`applied ${applied} operation${applied === 1 ? "" : "s"}`);
       toast.success(parts.join(" and ") || "Saved");
       close();
@@ -140,10 +142,10 @@ export default function PasteTimes({ data, defaultVehicleId, close, refresh }: {
           </label>
         </div>}
 
-        {data.vehicles.length ? (creating
+        {data.vehicles.length ? (creating2
           ? <p className="rounded-lg bg-background px-4 py-3 text-[11px] text-muted-foreground">The new vehicle will be created from the details above; pasted operations are added to it.</p>
           : <div><Label className="mb-2 block text-xs font-semibold">Save the pasted rows to</Label><Pick label="Vehicle" value={vehicleId} onChange={value => { setVehicleId(value); setError(""); }} options={data.vehicles.map(item => ({ value: item.id, label: `${item.make} ${item.model}${item.registration ? ` · ${item.registration}` : item.year ? ` · ${item.year}` : ""}` }))} /><p className="mt-2 text-[11px] leading-5 text-muted-foreground">Operations already on this vehicle with the same description are replaced, not duplicated.</p></div>)
-          : <p className={`rounded-lg p-3 text-sm ${creating ? "bg-background text-muted-foreground" : "bg-destructive/5 text-destructive"}`}>{creating ? "The new vehicle will be created from the details above." : "Add a vehicle first, or paste a vehicle identification screen and create one from it."}</p>}
+          : <p className={`rounded-lg p-3 text-sm ${creating2 ? "bg-background text-muted-foreground" : "bg-destructive/5 text-destructive"}`}>{creating2 ? "The new vehicle will be created from the details above." : "Add a vehicle first, or paste a vehicle identification screen and create one from it."}</p>}
 
         <div>
           <Label htmlFor="paste-times" className="text-xs font-semibold">Copied text</Label>
@@ -152,7 +154,7 @@ export default function PasteTimes({ data, defaultVehicleId, close, refresh }: {
         </div>
         {error && <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
         {parsed && (operations.length > 0 || hasDetails) && <div className="rounded-xl border border-border">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-background/70 px-4 py-3"><p className="text-xs font-semibold">{operations.length ? `${operations.length} operation${operations.length === 1 ? "" : "s"} read · ${hours(total)}` : "No operation rows in this paste"}</p>{parsed.skipped > 0 && <p className="text-[11px] text-muted-foreground">{parsed.skipped} line{parsed.skipped === 1 ? "" : "s"} skipped</p>}</div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-background/70 px-4 py-3"><p className="text-xs font-semibold">{operations.length ? `${operations.length} operation${operations.length === 1 ? "" : "s"}` : "No operation rows in this paste"}</p>{parsed.skipped > 0 && <p className="text-[11px] text-muted-foreground">{parsed.skipped} line{parsed.skipped === 1 ? "" : "s"} skipped</p>}</div>
           {operations.length > 0 && <div className="max-h-56 divide-y divide-border overflow-y-auto">{operations.map((operation, index) => <div key={`${operation.operation}-${index}`} className="flex items-start justify-between gap-4 px-4 py-2.5 text-xs"><span className="min-w-0"><span className="block break-words">{operation.operation}</span>{operation.code && <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-wide text-muted-foreground">{operation.code}</span>}</span><span className="shrink-0 font-semibold text-primary">{hours(operation.minutes)}</span></div>)}</div>}
         </div>}
         <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-5">
