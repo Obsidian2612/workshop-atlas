@@ -5,7 +5,8 @@ import { randomUUID } from "node:crypto";
 import { defineHandler } from "nitro";
 import { dataDir, fail, filename, logActivity, requireUser, transact, text } from "../../utils/store";
 import { importRepairTimes, parseRepairTimeImport, refreshVehicleRepairTimes, applySheetRepairTimes } from "../../utils/repair-times";
-import { parseRepairSheet } from "../../utils/repair-sheet";
+import { parseRepairSheet, parseRepairText } from "../../utils/repair-sheet";
+import { parseVehicleIdentification } from "../../utils/vehicle-sheet";
 
 const pdfLimit = 10 * 1024 * 1024;
 export default defineHandler(async event => {
@@ -31,6 +32,33 @@ export default defineHandler(async event => {
     const vehicle = await refreshVehicleRepairTimes(vehicleId, true);
     if (!vehicle) fail(404, "That vehicle has no VIN, so repair times cannot be looked up");
     return vehicle;
+  }
+
+  if (action === "paste") {
+    // Text the user copied from the licensed program. Without `apply` this only
+    // previews the rows; nothing is written to a vehicle until it is reviewed.
+    const raw = typeof body.text === "string" ? body.text : "";
+    if (!raw.trim()) fail(400, "Paste the rows from your repair-time program first");
+    if (raw.length > 200_000) fail(413, "Paste up to 200,000 characters at a time");
+    await transact(db => { requireUser(db, event.req, "admin"); return null; });
+    const parsed = parseRepairText(raw, { allowEmpty: true });
+    // A copied identification screen has no operation rows, and a vehicle
+    // paste has no times, so either kind of content is enough to preview.
+    const identification = parseVehicleIdentification(raw);
+    if (!parsed.operations.length && !identification) fail(400, "No repair-time rows or vehicle details were recognised. Copy the operation rows or a vehicle identification screen.");
+    if (body.apply !== true) return { operations: parsed.operations, skipped: parsed.skipped, vehicle: identification, applied: 0 };
+    if (!parsed.operations.length) return { applied: 0, skipped: parsed.skipped, vehicleId: "", vehicle: identification };
+    const vehicleId = typeof body.vehicleId === "string" ? body.vehicleId.trim() : "";
+    if (!vehicleId) fail(400, "Choose the vehicle these times belong to");
+    const applied = await applySheetRepairTimes(vehicleId, parsed.operations);
+    if (!applied) fail(404, "That vehicle is not in this workshop");
+    await transact(db => {
+      const user = requireUser(db, event.req, "admin");
+      const vehicle = db.vehicles.find(item => item.id === vehicleId);
+      logActivity(db, user, `Pasted ${parsed.operations.length} repair-time operations onto ${vehicle ? `${vehicle.make} ${vehicle.model}`.trim() : "a vehicle"}`);
+      return null;
+    }, true);
+    return { applied: parsed.operations.length, skipped: parsed.skipped, vehicleId, vehicle: identification };
   }
 
   if (action === "upload") {

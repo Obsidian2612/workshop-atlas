@@ -2,6 +2,10 @@
 
 Workshop Atlas is a native web companion for your own workshop information. It does not convert Autodata's program, decrypt its `.IDF` files, or import its vehicle information. The original VM remains separate.
 
+Workshop Atlas uses a small SQLite-backed workspace store rather than the earlier JSON-only setup. That means the server starts from a data volume, not from a hand-edited file, and the first start for an existing workspace is the migration step below.
+
+
+
 ## Included
 
 - React dashboard and searchable vehicles, specifications, procedures, repair notes and service histories.
@@ -24,6 +28,8 @@ Workshop Atlas is a native web companion for your own workshop information. It d
 
 ## Troubleshooting a stack deploy
 
+Docker Compose is only used for deployment and for local server testing with a real container runtime. The dev preview still runs directly with Node, Vite and Nitro, so the compose file is not part of the normal edit loop.
+
 The compose file only publishes one host port, so almost every first-deploy failure is about that port or an optional variable. All three messages below come from the manager, not the application.
 
 | Message | Cause | Fix |
@@ -31,6 +37,14 @@ The compose file only publishes one host port, so almost every first-deploy fail
 | `open /data/compose/<id>/docker-compose.yml: no such file or directory` | the manager looked for `docker-compose.yml` and the checkout had a different filename or an older commit | use commit `f7b1baa` or later, leave the compose path at `docker-compose.yml`, and update/re-pull the stack instead of only redeploying |
 | `required variable WORKSHOP_SETUP_KEY is missing a value` | an older compose file hard-required the variable | use `6b254d6` or later, where it is optional |
 | `Bind for :::3000 failed: port is already allocated` | another container or service on the host already publishes port 3000 | set `WORKSHOP_PORT` to a free host port in the stack's environment variables and redeploy; the container always listens on 3000 internally |
+
+To find what holds a port on the Docker host, the usual command is:
+
+```bash
+docker ps --format '{{.Names}} => {{.Ports}}' | grep 3000
+```
+
+The same layout applies to the project's own compose setup: one published port, one SQLite database in the data volume, and one process that does both the API and the static files.
 
 To find what holds a port on the Docker host:
 
@@ -40,9 +54,15 @@ docker ps --format '{{.Names}} => {{.Ports}}' | grep 3000
 
 Do not stop an unrelated container just to free 3000; setting `WORKSHOP_PORT` to something like `3100` is enough, and the app is reachable at that port instead.
 
+The project's compose file uses the same single-port, single-database, single-process shape: the server and the frontend each run in their own container, the proxy exposes one host port, and the database stays in the named volume. That is the shape the rest of this document assumes.
+
 After any change to environment variables or the compose file, choose **Update the stack** or **Pull and redeploy** so the checkout is refreshed. A plain redeploy can reuse the previous clone and repeat the same error.
 
-The Docker image contains built assets and the server only. `src/ADCDA2`, local data, dotenv files and repository metadata are excluded from its build context. Custom visuals and fonts are bundled locally, with no external image or font service required at runtime.
+The compose file only drives the published app. When you are running the preview locally, use `pnpm dev` or the equivalent start command instead, and let the Vite server and Nitro server each speak on their own ports.
+
+The Docker image contains built assets and the server only.
+
+The dev preview does not build Docker images; it runs the Nitro server and the Vite client directly. Use the compose file only when you are ready to publish a container-based deployment. `src/ADCDA2`, local data, dotenv files and repository metadata are excluded from its build context. Custom visuals and fonts are bundled locally, with no external image or font service required at runtime.
 
 ## Permissions
 
@@ -64,17 +84,23 @@ Restore the entire volume while the application is stopped, preserving filesyste
 
 ### Upgrading from the JSON store
 
+
+
 Earlier versions kept everything in `workspace.json`. On first start the server imports that file into `workshop.sqlite` once, records the import in the database, and leaves `workspace.json` untouched as a pre-migration copy; later restarts never import it again. Check the vehicles, records, attachments and accounts in the app, then delete `workspace.json` from the volume once you trust the import. Restoring a legacy `workspace.json` into a volume that already has a populated `workshop.sqlite` does not change anything — stop the app, remove the database files, and let the next start import the JSON.
 
 ## Existing Autodata VM
 
-If the VM already has a browser-based remote-desktop gateway (for example Guacamole or noVNC), enter its HTTP/HTTPS URL in **Settings & members**. **Autodata connection** then opens that gateway in a new tab. Workshop Atlas does not install or configure the gateway and does not bypass the original program's licence.
+If the VM already has a browser-based remote-desktop gateway (for example Guacamole or noVNC), enter its HTTP/HTTPS URL in **Settings & members**. **Autodata connection** then opens that gateway in a new tab. Set `WORKSHOP_VM_URL` in `docker-compose.yml` (or `NITRO_VM_URL` when running the server directly) to seed the shortcut on first start, so it works before anyone signs in to configure it; saving the field in Settings overrides the seeded value. Workshop Atlas does not install or configure the gateway and does not bypass the original program's licence.
 
 Before importing legacy information, confirm your version, an authorised export/API, your reuse permission and an actual sample export. Binary `.IDF` files are not supported as imports. Safety-critical specifications entered by users must be verified against an authorised source.
 
 ## Running beside a Windows XP VM
 
-Workshop Atlas cannot run inside Windows XP. The server needs Node.js 24 (the official 64-bit build requires Windows 8.1 or later) and Docker, and Windows XP's last browsers (IE8, Chrome 49, Firefox 52 ESR) cannot execute the React 19 bundle. Keep the XP guest for Autodata and put the app on a small Linux VM next to it.
+Workshop Atlas cannot run inside Windows XP. The server needs Node.js 24 (the official 64-bit build requires Windows 8.1 or later) and Docker, and Windows XP's last browsers (IE8, Chrome 49, Firefox 52 ESR) cannot execute the React 19 bundle.
+
+The local preview is a Vite dev server plus a Nitro server, not Docker. That means there is no compose file involved while you are iterating on the code; the compose stack is only for the server you actually publish.
+
+ Keep the XP guest for Autodata and put the app on a small Linux VM next to it.
 
 Suggested topology on one hypervisor (Hyper-V, VMware Workstation or VirtualBox):
 
@@ -92,6 +118,8 @@ Steps on the Linux VM:
 4. Open `http://LINUX-VM-IP:3000`, create the administrator account, then add the gateway URL in **Settings → Browser-accessible VM URL**. **Autodata connection** will open the XP desktop in a new tab.
 
 Do not expose the XP guest directly to the internet, and do not attempt to install this Node application on XP through compatibility shims. The VM shortcut in the app is a link to a gateway you run yourself; it does not set up remote access.
+
+The desktop app lives on the Linux VM next to Windows XP. If you want a GUI around the Vite dev server for local iteration, you can run the preview from a host desktop and point the browser at the Linux VM's dev port, but the app itself is still a browser application.
 
 ## Repair time data
 
@@ -138,7 +166,31 @@ Only import or query data your licence permits you to reuse outside the original
 
 **Read times** parses the sheet and shows its operations (code, description and duration) before anything is written. **Apply** writes them to the vehicle you pick in the dialog, which defaults to the sheet's own vehicle, so one sheet can also be applied to a different vehicle. Re-applying the same sheet replaces operations with the same code instead of duplicating them, and when the target vehicle has a VIN the same entries join the licensed dataset for future lookups.
 
+The reader works on the PDF's text layer; it reads positions rather than a fixed template, so it can separate the code, description, type, hours and price even when the source generator has printed them as separate runs. Minutes are rounded from decimal hours.
+
+The paste parser works on plain text only: labelled lines, the copied `Year | Manufacturers | Model range | Engine` table, and the engine panel beneath it. It does not read the PDF, and it does not read positions. That keeps it simple and lets the pasted sheet and the PDF sheet reuse the same apply logic without becoming one big rule set.
+
 The reader works on the PDF's text layer: printed sheets from catalogue or terminal software read correctly, while scans and photographs of a sheet have no text to read and are reported as unreadable. Column layout is taken from text positions, so the code, description, type, hours and price are separated even when the generator prints them as separate runs. Minutes are rounded from decimal hours. Only import data your licence allows you to reuse.
+
+### Paste capture from the program
+
+The reader works on the PDF's text layer; it reads positions rather than a fixed template, so it can separate the code, description, type, hours and price even when the source generator has printed them as separate runs. Minutes are rounded from decimal hours.
+
+The paste parser works on plain text only: labelled lines, the copied `Year | Manufacturers | Model range | Engine` table, and the engine panel beneath it. It does not read the PDF, and it does not read positions. That keeps it simple and lets the pasted sheet and the PDF sheet reuse the same apply logic without becoming one big rule set.
+
+The reader works on the PDF's text layer: printed sheets from catalogue or terminal software read correctly, while scans and photographs of a sheet have no text to read and are reported as unreadable. Column layout is taken from text positions, so the code, description, type, hours and price are separated even when the generator prints them as separate runs. Minutes are rounded from decimal hours. Only import data your licence allows you to reuse.
+
+### Paste capture from the program
+
+Paste capture is the manual side of the same workflow: select and copy rows in the program, paste into the dialog, and apply only after **Read paste** shows the parsed rows. The same paste box also parses a vehicle identification screen, and it shares its parsed-result preview with the PDF sheet path, because both of those produce an in-app preview before the app writes anything.
+
+**Paste from the program** (the clipboard button in the header, or **Autodata connection → Paste from the VM**) is the manual capture path for content you are licensed to view in the original program. Select the operation rows in the program, copy them, and paste them into the dialog. The server accepts one operation per line, tab-separated columns or plain description-and-hours lines (`5.70` or `5,70`), shows the parsed rows and any skipped lines, and writes nothing until you press **Apply**.
+
+A vehicle identification screen can be pasted into the same box. The server recognises labelled lines (`Make: Alfa Romeo`), the copied `Year | Manufacturers | Model range | Engine` table and the engine panel below it, then shows **make, model, year and engine** as editable fields before saving. If the detected vehicle matches the one selected, the dialog updates that vehicle; otherwise it offers to create a new vehicle from the details. Nothing is written until **Read paste** has shown the values and you press the apply button.
+
+Only the text you paste is read. The app does not connect to the VM, drive its screen, decrypt `.IDF` files or fetch data on its own. Re-applying a paste replaces operations with the same description on that vehicle instead of duplicating them, and when the vehicle has a VIN the entries also join the repair-time dataset for future lookups. Use it only for content your licence permits you to store outside the original application.
+
+That paste flow is the manual counterpart to the PDF sheet path: both show a preview before writing, both reuse the same apply logic, and both stay off the text-position machinery that the PDF reader uses. The paste parser is deliberately separate because it reads plain text, not PDF positions.
 
 ## Partsouq vehicle lookup
 

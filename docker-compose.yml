@@ -8,6 +8,8 @@ services:
       NITRO_DATA_DIR: /data
       NITRO_HOST: 0.0.0.0
       NITRO_PORT: "3000"
+      # Optional default for the Autodata VM shortcut (Settings can override it).
+      NITRO_VM_URL: "${WORKSHOP_VM_URL:-}"
       # Optional. When set, creating the first administrator requires this key.
       # Leave it empty only on a host nobody else can reach before setup finishes.
       NITRO_SETUP_KEY: "${WORKSHOP_SETUP_KEY:-}"

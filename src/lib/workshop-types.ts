@@ -19,6 +19,7 @@ export interface Attachment {
 export interface Activity { id: string; text: string; at: string; actor: string }
 export interface RepairTimePdf { id: string; vehicleId: string | null; name: string; size: number; createdAt: string; createdBy: string }
 export interface RepairSheetOperation { code: string; operation: string; minutes: number }
+export interface VehicleIdentification { make: string; model: string; year: string; engine: string; capacity: string; torque: string }
 export interface Workspace {
   setupRequired: boolean; user: User | null; name: string; vmUrl: string;
   vehicles: Vehicle[]; records: WorkshopRecord[]; attachments: Attachment[]; activity: Activity[]; users: User[];

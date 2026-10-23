@@ -157,7 +157,9 @@ function readStore(db: DatabaseSync): Store {
   for (const row of db.prepare("SELECT key, value FROM meta").all() as unknown as Row[]) meta.set(String(row.key), String(row.value));
   const store = emptyStore();
   store.name = meta.get("name") || store.name;
-  store.vmUrl = meta.get("vmUrl") || "";
+  // An operator can seed the VM shortcut once with NITRO_VM_URL; saving the
+  // setting in the app replaces it, so the stored value always wins.
+  store.vmUrl = meta.get("vmUrl") || (process.env.NITRO_VM_URL || "").trim();
   store.repairTimeMinutes = Number(meta.get("repairTimeMinutes")) || 0;
 
   store.users = (db.prepare("SELECT * FROM users ORDER BY sort DESC").all() as unknown as Row[]).map(row => ({
