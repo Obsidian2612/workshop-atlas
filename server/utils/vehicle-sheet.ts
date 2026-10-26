@@ -183,10 +183,10 @@ export function parseVehicleIdentification(source: string): VehicleIdentificatio
       if (year && make && model && engine) return { make, model, year, engine, capacity: "", torque: "" };
       const capacity = usableCapacity(cells[2]);
       const torque = usableTorque(cells[3]);
-      if (capacity && torque) return { make, model, year, engine: "", capacity, torque };
+      if (year && make && model && capacity && torque) return { make, model, year, engine: "", capacity, torque };
       const altEngine = usableEngine(cells[2]);
       const altCapacity = usableCapacity(cells[3]);
-      if (altEngine && altCapacity) return { make, model, year, engine: altEngine, capacity: altCapacity, torque: "" };
+      if (year && make && model && altEngine && altCapacity) return { make, model, year, engine: altEngine, capacity: altCapacity, torque: "" };
       const capacity2 = usableCapacity(cells[2]);
       const torque2 = usableTorque(cells[3]);
       if (year && make && model && capacity2 && torque2) return { make, model, year, engine: "", capacity: capacity2, torque: torque2 };
@@ -202,11 +202,11 @@ export function parseVehicleIdentification(source: string): VehicleIdentificatio
     torque: found.torque ?? "",
   };
 
-  const engineFromRow = usableEngine(found.engine);
+  const engineFromRow = usableEngine(found.engine ?? "");
   if (engineFromRow) identification.engine = engineFromRow;
-  const capacityFromRow = usableCapacity(found.capacity);
+  const capacityFromRow = usableCapacity(found.capacity ?? "");
   if (capacityFromRow) identification.capacity = capacityFromRow;
-  const torqueFromRow = usableTorque(found.torque);
+  const torqueFromRow = usableTorque(found.torque ?? "");
   if (torqueFromRow) identification.torque = torqueFromRow;
 
   const values = Object.values(identification).filter(Boolean);

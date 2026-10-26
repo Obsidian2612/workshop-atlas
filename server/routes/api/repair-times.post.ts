@@ -7,6 +7,7 @@ import { dataDir, fail, filename, logActivity, requireUser, transact, text } fro
 import { importRepairTimes, parseRepairTimeImport, refreshVehicleRepairTimes, applySheetRepairTimes } from "../../utils/repair-times";
 import { parseRepairSheet, parseRepairText } from "../../utils/repair-sheet";
 import { parseVehicleIdentification } from "../../utils/vehicle-sheet";
+import { mergeTorqueSpecs, parseTorqueText } from "../../utils/torques";
 
 const pdfLimit = 10 * 1024 * 1024;
 export default defineHandler(async event => {
@@ -42,23 +43,37 @@ export default defineHandler(async event => {
     if (raw.length > 200_000) fail(413, "Paste up to 200,000 characters at a time");
     await transact(db => { requireUser(db, event.req, "admin"); return null; });
     const parsed = parseRepairText(raw, { allowEmpty: true });
-    // A copied identification screen has no operation rows, and a vehicle
-    // paste has no times, so either kind of content is enough to preview.
+    // A copied identification screen has no operation rows and a vehicle paste
+    // has no times, so any one of operations, torques or vehicle details is
+    // enough to preview.
     const identification = parseVehicleIdentification(raw);
-    if (!parsed.operations.length && !identification) fail(400, "No repair-time rows or vehicle details were recognised. Copy the operation rows or a vehicle identification screen.");
-    if (body.apply !== true) return { operations: parsed.operations, skipped: parsed.skipped, vehicle: identification, applied: 0 };
-    if (!parsed.operations.length) return { applied: 0, skipped: parsed.skipped, vehicleId: "", vehicle: identification };
+    const torques = parseTorqueText(raw);
+    if (!parsed.operations.length && !identification && !torques.length) fail(400, "No repair-time rows, tightening torques or vehicle details were recognised. Copy operation rows, a torque table or a vehicle identification screen.");
+    if (body.apply !== true) return { operations: parsed.operations, skipped: parsed.skipped, torques, vehicle: identification, applied: 0 };
     const vehicleId = typeof body.vehicleId === "string" ? body.vehicleId.trim() : "";
-    if (!vehicleId) fail(400, "Choose the vehicle these times belong to");
-    const applied = await applySheetRepairTimes(vehicleId, parsed.operations);
-    if (!applied) fail(404, "That vehicle is not in this workshop");
-    await transact(db => {
-      const user = requireUser(db, event.req, "admin");
-      const vehicle = db.vehicles.find(item => item.id === vehicleId);
-      logActivity(db, user, `Pasted ${parsed.operations.length} repair-time operations onto ${vehicle ? `${vehicle.make} ${vehicle.model}`.trim() : "a vehicle"}`);
-      return null;
-    }, true);
-    return { applied: parsed.operations.length, skipped: parsed.skipped, vehicleId, vehicle: identification };
+    // A details-only paste only creates or fills a vehicle, so it needs no target.
+    const hasRows = parsed.operations.length > 0 || torques.length > 0;
+    if (hasRows && !vehicleId) fail(400, "Choose the vehicle this paste belongs to");
+    if (parsed.operations.length) {
+      const applied = await applySheetRepairTimes(vehicleId, parsed.operations);
+      if (!applied) fail(404, "That vehicle is not in this workshop");
+    }
+    if (hasRows) {
+      await transact(db => {
+        const user = requireUser(db, event.req, "admin");
+        const vehicle = db.vehicles.find(item => item.id === vehicleId);
+        if (!vehicle) fail(404, "That vehicle is not in this workshop");
+        if (torques.length) {
+          vehicle.torqueSpecs = mergeTorqueSpecs(vehicle.torqueSpecs || [], torques);
+          vehicle.torqueSpecsUpdatedAt = new Date().toISOString();
+        }
+        const label = `${vehicle.make} ${vehicle.model}`.trim() || "a vehicle";
+        if (parsed.operations.length) logActivity(db, user, `Pasted ${parsed.operations.length} repair-time operations onto ${label}`);
+        if (torques.length) logActivity(db, user, `Pasted ${torques.length} tightening torques onto ${label}`);
+        return null;
+      }, true);
+    }
+    return { applied: parsed.operations.length, torques: torques.length, skipped: parsed.skipped, vehicleId, vehicle: identification };
   }
 
   if (action === "upload") {

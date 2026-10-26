@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomUUID, randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { createError } from "nitro/h3";
-import type { Activity, Attachment, RepairTimeEntry, RepairTimePdf, User, Vehicle, WorkshopRecord, Workspace } from "../../src/lib/workshop-types";
+import type { Activity, Attachment, RepairTimeEntry, RepairTimePdf, TorqueSpec, User, Vehicle, WorkshopRecord, Workspace } from "../../src/lib/workshop-types";
 
 /*
  * Workshop data lives in one SQLite database (`workshop.sqlite`) next to the private
@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS vehicles (
   id TEXT PRIMARY KEY, make TEXT NOT NULL, model TEXT NOT NULL, year TEXT NOT NULL, engine TEXT NOT NULL,
   registration TEXT NOT NULL, vin TEXT NOT NULL, customer TEXT NOT NULL, specifications TEXT NOT NULL,
   repair_times TEXT, repair_times_source TEXT, repair_times_updated_at TEXT,
+  torque_specs TEXT, torque_specs_updated_at TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, created_by TEXT NOT NULL, sort INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS records (
@@ -79,6 +80,11 @@ CREATE INDEX IF NOT EXISTS vehicles_vin ON vehicles(vin);
 
 type Row = Record<string, string | number | null>;
 
+function ensureColumn(db: DatabaseSync, table: string, column: string, definition: string) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as unknown as Row[];
+  if (!columns.some(row => String(row.name) === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
 function emptyStore(): Store {
   return {
     name: "My workshop", vmUrl: "", users: [], sessions: [], vehicles: [], records: [],
@@ -97,6 +103,10 @@ function database(): DatabaseSync {
   db.exec("PRAGMA busy_timeout = 5000");
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(schema);
+  // Existing databases predate the torque columns; SQLite only creates the
+  // table, so add anything missing before the first read touches the rows.
+  ensureColumn(db, "vehicles", "torque_specs", "TEXT");
+  ensureColumn(db, "vehicles", "torque_specs_updated_at", "TEXT");
   chmodSync(databaseFile, 0o600);
   importLegacyStore(db);
   connection = db;
@@ -181,6 +191,11 @@ function readStore(db: DatabaseSync): Store {
       if (row.repair_times_source !== null) vehicle.repairTimesSource = String(row.repair_times_source);
       if (row.repair_times_updated_at !== null) vehicle.repairTimesUpdatedAt = String(row.repair_times_updated_at);
     }
+    if (row.torque_specs !== null) {
+      const specs = JSON.parse(String(row.torque_specs)) as TorqueSpec[];
+      if (Array.isArray(specs)) vehicle.torqueSpecs = specs;
+      if (row.torque_specs_updated_at !== null) vehicle.torqueSpecsUpdatedAt = String(row.torque_specs_updated_at);
+    }
     return vehicle;
   });
   store.records = (db.prepare("SELECT * FROM records ORDER BY sort DESC").all() as unknown as Row[]).map(row => ({
@@ -257,17 +272,19 @@ function writeSessions(db: DatabaseSync, before: Store, after: Store) {
 
 const vehicleKey = (vehicle: Vehicle) => JSON.stringify([vehicle.make, vehicle.model, vehicle.year, vehicle.engine, vehicle.registration,
   vehicle.vin, vehicle.customer, vehicle.specifications, vehicle.repairTimes ?? null, vehicle.repairTimesSource ?? null,
-  vehicle.repairTimesUpdatedAt ?? null, vehicle.createdAt, vehicle.updatedAt, vehicle.createdBy]);
+  vehicle.repairTimesUpdatedAt ?? null, vehicle.torqueSpecs ?? null, vehicle.torqueSpecsUpdatedAt ?? null,
+  vehicle.createdAt, vehicle.updatedAt, vehicle.createdBy]);
 
 function writeVehicles(db: DatabaseSync, before: Store, after: Store) {
   removeMissing(db, "vehicles", before.vehicles, after.vehicles);
   const upsert = db.prepare(`INSERT INTO vehicles (id, make, model, year, engine, registration, vin, customer, specifications,
-      repair_times, repair_times_source, repair_times_updated_at, created_at, updated_at, created_by, sort)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      repair_times, repair_times_source, repair_times_updated_at, torque_specs, torque_specs_updated_at, created_at, updated_at, created_by, sort)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET make = excluded.make, model = excluded.model, year = excluded.year, engine = excluded.engine,
       registration = excluded.registration, vin = excluded.vin, customer = excluded.customer, specifications = excluded.specifications,
       repair_times = excluded.repair_times, repair_times_source = excluded.repair_times_source,
-      repair_times_updated_at = excluded.repair_times_updated_at, created_at = excluded.created_at, updated_at = excluded.updated_at,
+      repair_times_updated_at = excluded.repair_times_updated_at, torque_specs = excluded.torque_specs,
+      torque_specs_updated_at = excluded.torque_specs_updated_at, created_at = excluded.created_at, updated_at = excluded.updated_at,
       created_by = excluded.created_by, sort = excluded.sort`);
   const move = db.prepare("UPDATE vehicles SET sort = ? WHERE id = ?");
   const prior = new Map(before.vehicles.map(vehicle => [vehicle.id, vehicle]));
@@ -280,6 +297,7 @@ function writeVehicles(db: DatabaseSync, before: Store, after: Store) {
       upsert.run(vehicle.id, vehicle.make, vehicle.model, vehicle.year, vehicle.engine, vehicle.registration, vehicle.vin,
         vehicle.customer, vehicle.specifications, vehicle.repairTimes ? JSON.stringify(vehicle.repairTimes) : null,
         vehicle.repairTimesSource ?? null, vehicle.repairTimesUpdatedAt ?? null,
+        vehicle.torqueSpecs ? JSON.stringify(vehicle.torqueSpecs) : null, vehicle.torqueSpecsUpdatedAt ?? null,
         vehicle.createdAt, vehicle.updatedAt, vehicle.createdBy, sort);
     } else if (priorSort.get(vehicle.id) !== sort) move.run(sort, vehicle.id);
   }
