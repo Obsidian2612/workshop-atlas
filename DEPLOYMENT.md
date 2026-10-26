@@ -192,6 +192,76 @@ Only the text you paste is read. The app does not connect to the VM, drive its s
 
 That paste flow is the manual counterpart to the PDF sheet path: both show a preview before writing, both reuse the same apply logic, and both stay off the text-position machinery that the PDF reader uses. The paste parser is deliberately separate because it reads plain text, not PDF positions.
 
+## Online torque specification search
+
+The **Tightening torques** section on a vehicle page offers **Search online**. The server asks a configured web-search provider for pages about that vehicle, reads a few of the returned pages, extracts rows that look like a fastener with a recognised torque unit, and shows them in a preview dialog. **Nothing is written until you tick the rows you trust and press Add selected.** The lookup uses the vehicle's make, model, year and engine code; a VIN is used as a fallback when no engine is recorded. It is not a Google scraper: Google has no free search API for new projects (Custom Search JSON API is closed to new customers and ends for existing customers on 1 January 2027), so the provider is configurable.
+
+### Configuration
+
+| Variable | Purpose |
+| --- | --- |
+| `TORQUE_SEARCH_URL` | Search endpoint. Required to enable the button. |
+| `TORQUE_SEARCH_PROVIDER` | `google`, `serper`, `brave` or `generic` (default `generic`). |
+| `TORQUE_SEARCH_KEY` | API key / bearer token, when the provider requires one. |
+| `TORQUE_SEARCH_ENGINE_ID` | Google Programmable Search engine ID (`cx`). |
+| `TORQUE_SEARCH_PAGES` | Pages read per search, 1–4 (default 3). |
+| `TORQUE_SEARCH_TIMEOUT_MS` | Per-request timeout, default 8000. |
+| `TORQUE_SEARCH_ALLOW_PRIVATE` | Development only. `1` disables the private-address guard so tests can read a local mock page. Never set it on a deployed server. |
+
+Google (existing Custom Search customer):
+
+```
+TORQUE_SEARCH_PROVIDER=google
+TORQUE_SEARCH_URL=https://www.googleapis.com/customsearch/v1
+TORQUE_SEARCH_KEY=...
+TORQUE_SEARCH_ENGINE_ID=...
+```
+
+Brave:
+
+```
+TORQUE_SEARCH_PROVIDER=brave
+TORQUE_SEARCH_URL=https://api.search.brave.com/res/v1/web/search
+TORQUE_SEARCH_KEY=...
+```
+
+Serper:
+
+```
+TORQUE_SEARCH_PROVIDER=serper
+TORQUE_SEARCH_URL=https://google.serper.dev/search
+TORQUE_SEARCH_KEY=...
+```
+
+Generic:
+
+```
+TORQUE_SEARCH_PROVIDER=generic
+TORQUE_SEARCH_URL=https://search.example/api
+TORQUE_SEARCH_KEY=...
+```
+
+A generic endpoint receives `GET ...?q=...` (with a bearer token when configured) and must return one of:
+
+- `{ "results": [{ "title", "url", "snippet" }] }`
+- `{ "items": [...] }` (Google CSE)
+- `{ "organic": [...] }` (Serper)
+- `{ "web": { "results": [...] } }` (Brave)
+- a bare array of those items.
+
+Items may use `link` instead of `url` and `description` instead of `snippet`.
+
+### What happens to a search
+
+- Only editors and administrators can run a search. Six searches per user per minute; results are cached for 10 minutes per vehicle.
+- Only the first 3 result pages (configurable) are read, with an 8-second timeout and a 1.5 MB limit each. Pages must be `text/html` or `text/plain`.
+- Every URL, including redirects, is rejected if it resolves to a private, loopback, link-local or multicast address. Search result links are shown even when a page cannot be read.
+- A torque row is accepted only when the line has a fastener-like phrase, a number and a recognised unit (`Nm`, `lbf·ft`, `lbf·in`, `kgf·m`). Ranges such as `18–22 Nm` are intentionally not imported, because the table stores one value per row; add those manually if required.
+- Rows are merged by fastener and stage, so re-running a search replaces matching values instead of duplicating them.
+- Online values are third-party content. Verify safety-critical figures against an authorised source; the preview says so and the app stores only what you confirm.
+
+The search provider sees the vehicle's make, model, year and engine. The VIN is only included when no engine is recorded, and is otherwise used only for the local cache key.
+
 ## Partsouq vehicle lookup
 
 When a vehicle has a VIN, its page offers **Search VIN on Partsouq**, which opens `https://partsouq.com/en/search/all?q=VIN` in a new tab. This is a convenience link only: Workshop Atlas does not scrape Partsouq, does not send your credentials, and does not store Partsouq data. Partsouq's own API is partner-only; request access from them if you need automated catalogue data.

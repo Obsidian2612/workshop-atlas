@@ -5,6 +5,9 @@ export interface RepairTimeEntry { operation: string; minutes: number; source: R
 export const torqueUnits = ["Nm", "lbf·ft", "lbf·in", "kgf·m"] as const;
 export type TorqueUnit = (typeof torqueUnits)[number];
 export interface TorqueSpec { fastener: string; stage: string; value: number; unit: TorqueUnit }
+export interface TorqueSearchCandidate extends TorqueSpec { sourceTitle: string; sourceUrl: string; snippet: string; mentions: number }
+export interface TorqueSearchSource { title: string; url: string; snippet: string }
+export interface TorqueSearchResponse { query: string; provider: string; results: TorqueSearchSource[]; candidates: TorqueSearchCandidate[]; fetched: number; cached?: boolean }
 export interface User { id: string; name: string; email: string; role: Role }
 export interface Vehicle {
   id: string; make: string; model: string; year: string; engine: string;

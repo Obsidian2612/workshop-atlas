@@ -17,6 +17,11 @@ services:
       REPAIR_API_URL: "${REPAIR_API_URL:-}"
       REPAIR_API_KEY: "${REPAIR_API_KEY:-}"
       REPAIR_API_TIMEOUT_MS: "${REPAIR_API_TIMEOUT_MS:-5000}"
+      # Optional online torque search (see DEPLOYMENT.md). Empty disables the button.
+      TORQUE_SEARCH_URL: "${TORQUE_SEARCH_URL:-}"
+      TORQUE_SEARCH_PROVIDER: "${TORQUE_SEARCH_PROVIDER:-generic}"
+      TORQUE_SEARCH_KEY: "${TORQUE_SEARCH_KEY:-}"
+      TORQUE_SEARCH_ENGINE_ID: "${TORQUE_SEARCH_ENGINE_ID:-}"
     volumes:
       - workshop-data:/data
     read_only: true

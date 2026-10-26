@@ -126,7 +126,7 @@ function cleanFastener(raw: string) {
   return raw.replace(/\s+/g, " ").replace(/^[\s|;:,.\-–—•]+/, "").replace(/[\s|;:,.\-–—•]+$/, "").trim();
 }
 
-function readTorqueLine(line: string): TorqueSpec | null {
+export function parseTorqueLine(line: string): TorqueSpec | null {
   const unit = findUnit(line);
   if (!unit) return null;
   const before = line.slice(0, unit.index).trimEnd();
@@ -156,7 +156,7 @@ export function parseTorqueText(source: string): TorqueSpec[] {
   const specs: TorqueSpec[] = [];
   const positions = new Map<string, number>();
   for (const line of lines) {
-    const spec = readTorqueLine(line);
+    const spec = parseTorqueLine(line);
     if (!spec) continue;
     const key = `${spec.fastener.toLowerCase()}|${spec.stage.toLowerCase()}`;
     const at = positions.get(key);
