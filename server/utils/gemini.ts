@@ -82,7 +82,7 @@ async function askGemini(prompt: string): Promise<string> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) fail(503, "GEMINI_API_KEY is not configured on the server");
   // The vehicle model is not the Gemini model; keep them separate.
-  const target = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const target = process.env.GEMINI_MODEL || "gemini-3.8-flash";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(target)}:generateContent?key=${encodeURIComponent(key)}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

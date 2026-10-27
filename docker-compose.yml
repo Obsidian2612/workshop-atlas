@@ -15,7 +15,7 @@ services:
       NITRO_SETUP_KEY: "${WORKSHOP_SETUP_KEY:-}"
       # Optional Gemini lookup (see DEPLOYMENT.md). Empty disables the buttons.
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
-      GEMINI_MODEL: "${GEMINI_MODEL:-gemini-2.5-flash}"
+      GEMINI_MODEL: "${GEMINI_MODEL:-gemini-3.8-flash}"
       # Optional repair-time provider (see DEPLOYMENT.md). Empty disables lookups.
       REPAIR_API_URL: "${REPAIR_API_URL:-}"
       REPAIR_API_KEY: "${REPAIR_API_KEY:-}"

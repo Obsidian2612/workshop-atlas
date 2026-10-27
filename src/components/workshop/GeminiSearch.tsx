@@ -68,7 +68,7 @@ export default function GeminiSearch({ vehicle, close, refresh }: { vehicle: Veh
 
         {!loading && error && <div role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 p-4">
           <p className="text-sm text-destructive">{error}</p>
-          {unconfigured && <p className="mt-2 text-[11px] leading-5 text-muted-foreground">An administrator can enable this by setting <code className="rounded bg-white px-1">GEMINI_API_KEY</code> in the server environment and restarting the app. Optionally set <code className="rounded bg-white px-1">GEMINI_MODEL</code>; the default is <code className="rounded bg-white px-1">gemini-2.5-flash</code>.</p>}
+          {unconfigured && <p className="mt-2 text-[11px] leading-5 text-muted-foreground">An administrator can enable this by setting <code className="rounded bg-white px-1">GEMINI_API_KEY</code> in the server environment and restarting the app. Optionally set <code className="rounded bg-white px-1">GEMINI_MODEL</code>; the default is <code className="rounded bg-white px-1">gemini-3.8-flash</code>.</p>}
           {!unconfigured && <Button variant="outline" onClick={() => run()} className="mt-3 h-9 rounded-lg text-xs">Try again</Button>}
         </div>}
 
