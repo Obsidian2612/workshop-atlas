@@ -192,6 +192,18 @@ Only the text you paste is read. The app does not connect to the VM, drive its s
 
 That paste flow is the manual counterpart to the PDF sheet path: both show a preview before writing, both reuse the same apply logic, and both stay off the text-position machinery that the PDF reader uses. The paste parser is deliberately separate because it reads plain text, not PDF positions.
 
+### Google Gemini lookup
+
+The vehicle page offers **Search times with Gemini** in the repair-times header and **Search torques with Gemini** in the tightening-torques header. The server asks Gemini for manufacturer-standard times (or torque specifications) using the vehicle's VIN, with make, model, year and engine as context, and shows the candidate rows in a preview dialog. Only the rows you tick and confirm are written. Repair times are stored on that vehicle with the `gemini` source and are not added to the licensed VIN dataset; torques are merged into the vehicle's existing torque table.
+
+| Variable | Purpose |
+| --- | --- |
+| `GEMINI_API_KEY` | Google AI Studio API key. Required to enable the button. |
+| `GEMINI_MODEL` | Gemini model, default `gemini-2.5-flash`. |
+| `GEMINI_TIMEOUT_MS` | Lookup timeout, default `20000`. |
+
+Create a key at <https://aistudio.google.com/apikey> and set it in the server environment or the compose environment. Lookups require an editor or administrator account. Repair-time lookups need a VIN; torque lookups can use the make, model, year, engine / variant, engine model and engine number when the vehicle has no VIN. Both engine fields are optional vehicle details, and the more of them you record the more specific the torque prompt becomes. AI-generated values are estimates: check them against an authorised source before using them for quotes, billing or safety-critical fasteners.
+
 ## Online torque specification search
 
 The **Tightening torques** section on a vehicle page offers **Search online**. The server asks a configured web-search provider for pages about that vehicle, reads a few of the returned pages, extracts rows that look like a fastener with a recognised torque unit, and shows them in a preview dialog. **Nothing is written until you tick the rows you trust and press Add selected.** The lookup uses the vehicle's make, model, year and engine code; a VIN is used as a fallback when no engine is recorded. It is not a Google scraper: Google has no free search API for new projects (Custom Search JSON API is closed to new customers and ends for existing customers on 1 January 2027), so the provider is configurable.

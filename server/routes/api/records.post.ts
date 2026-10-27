@@ -47,7 +47,9 @@ export default defineHandler(async event => {
       const year = text(body.year, "Year", 4);
       if (year && !/^\d{4}$/.test(year)) fail(400, "Year must have four digits");
       const vehicle = { ...common, make: text(body.make, "Make", 80, true), model: text(body.model, "Model", 100, true), year,
-        engine: text(body.engine, "Engine", 100), registration: text(body.registration, "Registration", 30), vin: text(body.vin, "VIN", 30),
+        engine: text(body.engine, "Engine", 100), engineModel: text(body.engineModel, "Engine model", 100),
+        engineNumber: text(body.engineNumber, "Engine number", 60),
+        registration: text(body.registration, "Registration", 30), vin: text(body.vin, "VIN", 30),
         customer: text(body.customer, "Customer", 200), specifications: text(body.specifications, "Specifications", 20000) };
       const vin = vehicle.vin ? vehicle.vin.toUpperCase() : "";
       const imported = vin ? db.repairTimesByVin?.[vin] : undefined;

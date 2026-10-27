@@ -1,7 +1,9 @@
 export type Role = "admin" | "editor" | "viewer";
 export type RecordKind = "procedure" | "note" | "service";
-export type RepairTimeSource = "imported" | "provider" | "manual";
+export type RepairTimeSource = "imported" | "provider" | "manual" | "gemini";
 export interface RepairTimeEntry { operation: string; minutes: number; source: RepairTimeSource }
+export interface GeminiRepairRow { vin: string; operation: string; minutes: number }
+export interface GeminiTorqueRow extends TorqueSpec { vin: string }
 export const torqueUnits = ["Nm", "lbf·ft", "lbf·in", "kgf·m"] as const;
 export type TorqueUnit = (typeof torqueUnits)[number];
 export interface TorqueSpec { fastener: string; stage: string; value: number; unit: TorqueUnit }
@@ -11,6 +13,7 @@ export interface TorqueSearchResponse { query: string; provider: string; results
 export interface User { id: string; name: string; email: string; role: Role }
 export interface Vehicle {
   id: string; make: string; model: string; year: string; engine: string;
+  engineModel: string; engineNumber: string;
   registration: string; vin: string; customer: string; specifications: string;
   repairTimes?: RepairTimeEntry[]; repairTimesSource?: string; repairTimesUpdatedAt?: string;
   torqueSpecs?: TorqueSpec[]; torqueSpecsUpdatedAt?: string;

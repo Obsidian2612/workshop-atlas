@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE TABLE IF NOT EXISTS vehicles (
   id TEXT PRIMARY KEY, make TEXT NOT NULL, model TEXT NOT NULL, year TEXT NOT NULL, engine TEXT NOT NULL,
+  engine_model TEXT NOT NULL DEFAULT '', engine_number TEXT NOT NULL DEFAULT '',
   registration TEXT NOT NULL, vin TEXT NOT NULL, customer TEXT NOT NULL, specifications TEXT NOT NULL,
   repair_times TEXT, repair_times_source TEXT, repair_times_updated_at TEXT,
   torque_specs TEXT, torque_specs_updated_at TEXT,
@@ -103,10 +104,12 @@ function database(): DatabaseSync {
   db.exec("PRAGMA busy_timeout = 5000");
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(schema);
-  // Existing databases predate the torque columns; SQLite only creates the
-  // table, so add anything missing before the first read touches the rows.
+  // Existing databases predate the torque and engine-identity columns; SQLite
+  // only creates the table, so add anything missing before the first read.
   ensureColumn(db, "vehicles", "torque_specs", "TEXT");
   ensureColumn(db, "vehicles", "torque_specs_updated_at", "TEXT");
+  ensureColumn(db, "vehicles", "engine_model", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "vehicles", "engine_number", "TEXT NOT NULL DEFAULT ''");
   chmodSync(databaseFile, 0o600);
   importLegacyStore(db);
   connection = db;
@@ -143,7 +146,8 @@ function importLegacyStore(db: DatabaseSync) {
   if (!Array.isArray(parsed.users) || !Array.isArray(parsed.vehicles)) throw new Error("The existing workspace.json does not look like workshop data");
   const imported: Store = {
     ...emptyStore(), ...parsed,
-    users: parsed.users, sessions: parsed.sessions || [], vehicles: parsed.vehicles,
+    users: parsed.users, sessions: parsed.sessions || [],
+    vehicles: parsed.vehicles.map(vehicle => ({ ...vehicle, engineModel: vehicle.engineModel ?? "", engineNumber: vehicle.engineNumber ?? "" })),
     records: (parsed.records || []).map(record => ({ ...record, repairTimeMinutes: Number(record.repairTimeMinutes) || 0 })),
     attachments: parsed.attachments || [], activity: parsed.activity || [],
     repairTimesByVin: parsed.repairTimesByVin || {},
@@ -182,7 +186,8 @@ function readStore(db: DatabaseSync): Store {
   store.vehicles = (db.prepare("SELECT * FROM vehicles ORDER BY sort DESC").all() as unknown as Row[]).map(row => {
     const vehicle: Vehicle = {
       id: String(row.id), make: String(row.make), model: String(row.model), year: String(row.year),
-      engine: String(row.engine), registration: String(row.registration), vin: String(row.vin),
+      engine: String(row.engine), engineModel: String(row.engine_model ?? ""), engineNumber: String(row.engine_number ?? ""),
+      registration: String(row.registration), vin: String(row.vin),
       customer: String(row.customer), specifications: String(row.specifications),
       createdAt: String(row.created_at), updatedAt: String(row.updated_at), createdBy: String(row.created_by),
     };
@@ -270,17 +275,19 @@ function writeSessions(db: DatabaseSync, before: Store, after: Store) {
   }
 }
 
-const vehicleKey = (vehicle: Vehicle) => JSON.stringify([vehicle.make, vehicle.model, vehicle.year, vehicle.engine, vehicle.registration,
-  vehicle.vin, vehicle.customer, vehicle.specifications, vehicle.repairTimes ?? null, vehicle.repairTimesSource ?? null,
+const vehicleKey = (vehicle: Vehicle) => JSON.stringify([vehicle.make, vehicle.model, vehicle.year, vehicle.engine,
+  vehicle.engineModel, vehicle.engineNumber, vehicle.registration, vehicle.vin, vehicle.customer, vehicle.specifications,
+  vehicle.repairTimes ?? null, vehicle.repairTimesSource ?? null,
   vehicle.repairTimesUpdatedAt ?? null, vehicle.torqueSpecs ?? null, vehicle.torqueSpecsUpdatedAt ?? null,
   vehicle.createdAt, vehicle.updatedAt, vehicle.createdBy]);
 
 function writeVehicles(db: DatabaseSync, before: Store, after: Store) {
   removeMissing(db, "vehicles", before.vehicles, after.vehicles);
-  const upsert = db.prepare(`INSERT INTO vehicles (id, make, model, year, engine, registration, vin, customer, specifications,
+  const upsert = db.prepare(`INSERT INTO vehicles (id, make, model, year, engine, engine_model, engine_number, registration, vin, customer, specifications,
       repair_times, repair_times_source, repair_times_updated_at, torque_specs, torque_specs_updated_at, created_at, updated_at, created_by, sort)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET make = excluded.make, model = excluded.model, year = excluded.year, engine = excluded.engine,
+      engine_model = excluded.engine_model, engine_number = excluded.engine_number,
       registration = excluded.registration, vin = excluded.vin, customer = excluded.customer, specifications = excluded.specifications,
       repair_times = excluded.repair_times, repair_times_source = excluded.repair_times_source,
       repair_times_updated_at = excluded.repair_times_updated_at, torque_specs = excluded.torque_specs,
@@ -294,8 +301,8 @@ function writeVehicles(db: DatabaseSync, before: Store, after: Store) {
     const previous = prior.get(vehicle.id);
     const sort = nextSort.get(vehicle.id) ?? 0;
     if (!previous || vehicleKey(previous) !== vehicleKey(vehicle)) {
-      upsert.run(vehicle.id, vehicle.make, vehicle.model, vehicle.year, vehicle.engine, vehicle.registration, vehicle.vin,
-        vehicle.customer, vehicle.specifications, vehicle.repairTimes ? JSON.stringify(vehicle.repairTimes) : null,
+      upsert.run(vehicle.id, vehicle.make, vehicle.model, vehicle.year, vehicle.engine, vehicle.engineModel, vehicle.engineNumber,
+        vehicle.registration, vehicle.vin, vehicle.customer, vehicle.specifications, vehicle.repairTimes ? JSON.stringify(vehicle.repairTimes) : null,
         vehicle.repairTimesSource ?? null, vehicle.repairTimesUpdatedAt ?? null,
         vehicle.torqueSpecs ? JSON.stringify(vehicle.torqueSpecs) : null, vehicle.torqueSpecsUpdatedAt ?? null,
         vehicle.createdAt, vehicle.updatedAt, vehicle.createdBy, sort);
