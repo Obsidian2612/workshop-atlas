@@ -2,8 +2,9 @@ import { fail } from "./store";
 import { cleanTorqueValue, normalizeTorqueUnit } from "./torques";
 import type { TorqueSpec } from "../../src/lib/workshop-types";
 
-const timeoutMs = Number(process.env.GEMINI_TIMEOUT_MS) || 20000;
-const maxRows = 100;
+const timeoutMs = Number(process.env.GEMINI_TIMEOUT_MS) || 60000;
+const maxRows = 40;
+const maxTorqueRows = 25;
 
 export interface GeminiRepairRow {
   vin: string;
@@ -78,6 +79,17 @@ export function parseGeminiTorques(reply: string, vin: string): GeminiTorqueRow[
   return rows;
 }
 
+/*
+ * Gemini 3.x/4.x default to medium thinking, which can push a structured
+ * lookup past a short timeout. Low thinking is enough for extraction. Older
+ * 2.5 models use a token budget instead of the discrete level.
+ */
+function thinkingConfig(model: string) {
+  if (/^gemini-(3|4)(?:[.-]|$)/i.test(model)) return { thinkingLevel: "low" };
+  if (/^gemini-2\.5/i.test(model)) return { thinkingBudget: 0 };
+  return undefined;
+}
+
 async function askGemini(prompt: string): Promise<string> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) fail(503, "GEMINI_API_KEY is not configured on the server");
@@ -93,12 +105,12 @@ async function askGemini(prompt: string): Promise<string> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0, responseMimeType: "application/json" },
+        generationConfig: { temperature: 0, responseMimeType: "application/json", thinkingConfig: thinkingConfig(target) },
       }),
       signal: controller.signal,
     });
   } catch (error) {
-    if ((error as Error).name === "AbortError") fail(504, "Gemini took too long to respond. Try again.");
+    if ((error as Error).name === "AbortError") fail(504, `Gemini took too long to respond (${Math.round(timeoutMs / 1000)}s). Try again.`);
     fail(502, `Gemini could not be reached: ${(error as Error).message}`);
   } finally {
     clearTimeout(timer);
@@ -144,7 +156,7 @@ export async function fetchGeminiTorques(vin: string, make?: string, model?: str
     'Format: [{"fastener":"Front lower arm bolt","stage":"1","value":90,"unit":"Nm"}]',
     'unit must be one of "Nm", "lbf·ft", "lbf·in" or "kgf·m". value must be a number greater than 0.',
     'stage is optional: "1", "2" or a short label.',
-    "Return at most 40 fasteners. If the vehicle is unknown, reply with []. Do not invent values.",
+    `Return at most ${maxTorqueRows} fasteners. If the vehicle is unknown, reply with []. Do not invent values.`,
   ].join("\n");
   return parseGeminiTorques(await askGemini(prompt), vin);
 }

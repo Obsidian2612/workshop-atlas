@@ -200,7 +200,9 @@ The vehicle page offers **Search times with Gemini** in the repair-times header 
 | --- | --- |
 | `GEMINI_API_KEY` | Google AI Studio API key. Required to enable the button. |
 | `GEMINI_MODEL` | Gemini model, default `gemini-3.8-flash`. |
-| `GEMINI_TIMEOUT_MS` | Lookup timeout, default `20000`. |
+| `GEMINI_TIMEOUT_MS` | Lookup timeout, default `60000`. |
+
+Requests use Gemini's low thinking level and ask for at most 40 repair times or 25 torques, which keeps generation inside the timeout. If a lookup still times out, raise `GEMINI_TIMEOUT_MS`.
 
 Create a key at <https://aistudio.google.com/apikey> and set it in the server environment or the compose environment. Lookups require an editor or administrator account. Repair-time lookups need a VIN; torque lookups can use the make, model, year, engine / variant, engine model and engine number when the vehicle has no VIN. Both engine fields are optional vehicle details, and the more of them you record the more specific the torque prompt becomes. AI-generated values are estimates: check them against an authorised source before using them for quotes, billing or safety-critical fasteners.
 
