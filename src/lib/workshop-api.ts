@@ -16,8 +16,8 @@ export async function request(path: string, options: RequestInit = {}): Promise<
   }
   return response;
 }
-export async function api<T = unknown>(path: string, body?: unknown): Promise<T> {
-  const response = await request(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+export async function api<T = unknown>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await request(path, body === undefined ? { signal } : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
   return response.json();
 }
 export async function download(path: string, name: string) {
