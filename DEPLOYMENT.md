@@ -208,66 +208,29 @@ Create a key at <https://aistudio.google.com/apikey> and set it in the server en
 
 ## Online torque specification search
 
-The **Tightening torques** section on a vehicle page offers **Search torque specifications with Brave**. The server sends the vehicle's make, model, year and engine identifiers (engine model/number first, then variant; VIN as a fallback) to Brave Search, reads a few returned pages, extracts rows that look like a fastener with a recognised torque unit, and shows them in a preview dialog. **Nothing is written until you tick the rows you trust and press Add selected.** This is a web search, not a source of verified manufacturer data; check safety-critical values against an authorised service source.
+The **Tightening torques** section on a vehicle page offers **Search torque specifications with Groq**. The server sends the vehicle identity (make, model, year, engine model/number, variant and VIN) to Groq's built-in browser search, asks it to find source-backed torque specifications, and shows the cited sources and candidate rows in a preview dialog. **Nothing is written until you tick the rows you trust and press Add selected.** Groq's search can help locate information, but its output is not verified manufacturer data; check safety-critical values against an authorised service source.
 
 ### Configuration
 
 | Variable | Purpose |
 | --- | --- |
-| `TORQUE_SEARCH_KEY` | Brave Search API subscription token. Required to enable searches. |
-| `TORQUE_SEARCH_URL` | Optional endpoint override; defaults to Brave's Web Search endpoint. |
-| `TORQUE_SEARCH_PROVIDER` | Optional provider override; defaults to `brave`. |
-| `TORQUE_SEARCH_PAGES` | Pages read per search, 1–4 (default 3). |
-| `TORQUE_SEARCH_TIMEOUT_MS` | Per-request timeout, default 8000. |
-| `TORQUE_SEARCH_ALLOW_PRIVATE` | Development only. `1` disables the private-address guard so tests can read a local mock page. Never set it on a deployed server. |
+| `GROQ_API_KEY` | Groq API key. Required to enable searches. |
+| `GROQ_MODEL` | Groq browser-search model: `openai/gpt-oss-20b` (default) or `openai/gpt-oss-120b`. |
+| `GROQ_TIMEOUT_MS` | Request timeout in milliseconds (default `60000`). |
 
-Set the Brave Search API subscription token in your server environment (or the Docker stack environment):
-
-```
-TORQUE_SEARCH_PROVIDER=brave
-TORQUE_SEARCH_KEY=...
-```
-
-The default endpoint is `https://api.search.brave.com/res/v1/web/search`; you do not need to set `TORQUE_SEARCH_URL` unless overriding it.
-
-Brave currently advertises a $5 monthly credit at $5 per 1,000 requests (roughly 1,000 monthly searches at list price), rather than a daily free quota. Check the [current Brave pricing](https://api-dashboard.search.brave.com/documentation/pricing) before relying on the allowance.
-
-Serper:
-
-```
-TORQUE_SEARCH_PROVIDER=serper
-TORQUE_SEARCH_URL=https://google.serper.dev/search
-TORQUE_SEARCH_KEY=...
-```
-
-Generic:
-
-```
-TORQUE_SEARCH_PROVIDER=generic
-TORQUE_SEARCH_URL=https://search.example/api
-TORQUE_SEARCH_KEY=...
-```
-
-A generic endpoint receives `GET ...?q=...` (with a bearer token when configured) and must return one of:
-
-- `{ "results": [{ "title", "url", "snippet" }] }`
-- `{ "items": [...] }` (Google CSE)
-- `{ "organic": [...] }` (Serper)
-- `{ "web": { "results": [...] } }` (Brave)
-- a bare array of those items.
-
-Items may use `link` instead of `url` and `description` instead of `snippet`.
+Create an API key at <https://console.groq.com/keys> and set it as `GROQ_API_KEY` in your server environment or Docker stack environment, then restart/redeploy the app. The default model is `openai/gpt-oss-20b`; both listed model choices support Groq's built-in browser search. No separate search-provider key or endpoint is needed.
 
 ### What happens to a search
 
 - Only editors and administrators can run a search. Six searches per user per minute; results are cached for 10 minutes per vehicle.
-- Only the first 3 result pages (configurable) are read, with an 8-second timeout and a 1.5 MB limit each. Pages must be `text/html` or `text/plain`.
-- Every URL, including redirects, is rejected if it resolves to a private, loopback, link-local or multicast address. Search result links are shown even when a page cannot be read.
-- A torque row is accepted only when the line has a fastener-like phrase, a number and a recognised unit (`Nm`, `lbf·ft`, `lbf·in`, `kgf·m`). Ranges such as `18–22 Nm` are intentionally not imported, because the table stores one value per row; add those manually if required.
+- Groq performs browser search server-side and returns a response with its answer and citation text. The app extracts only rows with valid torque values/units and direct source URLs that Groq included in its response.
+- Candidate values use recognised units (`Nm`, `lbf·ft`, `lbf·in`, `kgf·m`). Invalid values, units, or rows without a source link are discarded.
 - Rows are merged by fastener and stage, so re-running a search replaces matching values instead of duplicating them.
 - Online values are third-party content. Verify safety-critical figures against an authorised source; the preview says so and the app stores only what you confirm.
 
-Brave Search receives the vehicle's make, model, year and engine identifiers, including the engine number when recorded. The VIN is included only when no engine model, number or variant is recorded; otherwise it is used only for the local cache key.
+Groq's browser search is not compatible with Structured Outputs, so the server validates and normalizes the JSON-like response before showing candidates. Citations help identify potentially relevant source pages but do not guarantee factual accuracy or correct vehicle matching.
+
+Current API details and model support are in [Groq's Browser Search documentation](https://console.groq.com/docs/tool-use/built-in-tools/browser-search) and [model list](https://console.groq.com/docs/models).
 
 ## Partsouq vehicle lookup
 
