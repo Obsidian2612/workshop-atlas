@@ -11,12 +11,19 @@ import type { TorqueSearchCandidate, TorqueSearchResponse, TorqueSearchSource } 
  * a provider is never contacted unless an administrator has configured one.
  *
  * Pages are fetched server-side, so every URL (including redirects) is checked
- * against private address ranges first. Google's Custom Search JSON API is
- * closed to new customers, so the provider is configurable rather than fixed:
- * google, serper, brave or any generic JSON search endpoint.
+ * against private address ranges first. Brave Search is the default provider;
+ * other compatible providers can still be selected by server configuration.
  */
 
-interface SearchVehicle { make: string; model: string; year: string; engine: string; vin: string }
+interface SearchVehicle {
+  make: string;
+  model: string;
+  year: string;
+  engine: string;
+  engineModel: string;
+  engineNumber: string;
+  vin: string;
+}
 
 const timeout = Number(process.env.TORQUE_SEARCH_TIMEOUT_MS) || 8000;
 const pageLimit = Math.min(Math.max(Number(process.env.TORQUE_SEARCH_PAGES) || 3, 1), 4);
@@ -27,8 +34,7 @@ const cache = new Map<string, { at: number; data: TorqueSearchResponse }>();
 const rangePattern = /\b\d{1,4}(?:[.,]\d{1,3})?\s*(?:-|–|—|to)\s*\d{1,4}(?:[.,]\d{1,3})?\b/i;
 
 function endpoint(): URL {
-  const raw = (process.env.TORQUE_SEARCH_URL || "").trim();
-  if (!raw) fail(400, "Online torque search is not configured on this server. An administrator can add TORQUE_SEARCH_URL (and TORQUE_SEARCH_KEY if the provider needs one), then restart the server.");
+  const raw = (process.env.TORQUE_SEARCH_URL || "https://api.search.brave.com/res/v1/web/search").trim();
   let url: URL;
   try { url = new URL(raw); }
   catch { fail(400, "TORQUE_SEARCH_URL is not a valid URL."); }
@@ -36,16 +42,17 @@ function endpoint(): URL {
 }
 
 function providerName() {
-  const value = (process.env.TORQUE_SEARCH_PROVIDER || "generic").trim().toLowerCase();
+  const value = (process.env.TORQUE_SEARCH_PROVIDER || "brave").trim().toLowerCase();
   if (!["google", "serper", "brave", "generic"].includes(value)) fail(400, "TORQUE_SEARCH_PROVIDER must be google, serper, brave or generic.");
   return value;
 }
 
 function buildQuery(vehicle: SearchVehicle) {
-  // Engine code is the most useful disambiguator. VIN is a fallback when no
-  // engine is recorded; VIN-only web results rarely carry torque tables.
-  const parts = [vehicle.make, vehicle.model, vehicle.year, vehicle.engine].filter(Boolean);
-  if (!vehicle.engine && vehicle.vin) parts.push(vehicle.vin);
+  // Engine model/number help distinguish variants. VIN is a fallback when no
+  // engine identifier is recorded; VIN-only web results rarely carry tables.
+  const engineIdentity = [vehicle.engineModel, vehicle.engineNumber, vehicle.engine].filter(Boolean);
+  const parts = [vehicle.make, vehicle.model, vehicle.year, ...engineIdentity];
+  if (!engineIdentity.length && vehicle.vin) parts.push(vehicle.vin);
   return `${parts.join(" ").trim()} tightening torque specifications`.trim();
 }
 
@@ -251,7 +258,7 @@ function collectCandidates(text: string, source: TorqueSearchSource, into: Map<s
 export async function searchTorqueSpecs(vehicle: SearchVehicle): Promise<TorqueSearchResponse> {
   const provider = providerName();
   const query = buildQuery(vehicle);
-  const key = [provider, vehicle.make, vehicle.model, vehicle.year, vehicle.engine, vehicle.vin].join("|").toLowerCase();
+  const key = [provider, vehicle.make, vehicle.model, vehicle.year, vehicle.engine, vehicle.engineModel, vehicle.engineNumber, vehicle.vin].join("|").toLowerCase();
   const cached = cache.get(key);
   if (cached && Date.now() - cached.at < cacheTtl) return { ...cached.data, cached: true };
   const found = await requestSearch(query);

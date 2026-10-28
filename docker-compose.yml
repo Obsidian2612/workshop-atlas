@@ -21,9 +21,9 @@ services:
       REPAIR_API_URL: "${REPAIR_API_URL:-}"
       REPAIR_API_KEY: "${REPAIR_API_KEY:-}"
       REPAIR_API_TIMEOUT_MS: "${REPAIR_API_TIMEOUT_MS:-5000}"
-      # Optional online torque search (see DEPLOYMENT.md). Empty disables the button.
-      TORQUE_SEARCH_URL: "${TORQUE_SEARCH_URL:-}"
-      TORQUE_SEARCH_PROVIDER: "${TORQUE_SEARCH_PROVIDER:-generic}"
+      # Optional Brave Search API torque lookup (see DEPLOYMENT.md). Set TORQUE_SEARCH_KEY to enable.
+      TORQUE_SEARCH_URL: "${TORQUE_SEARCH_URL:-https://api.search.brave.com/res/v1/web/search}"
+      TORQUE_SEARCH_PROVIDER: "${TORQUE_SEARCH_PROVIDER:-brave}"
       TORQUE_SEARCH_KEY: "${TORQUE_SEARCH_KEY:-}"
       TORQUE_SEARCH_ENGINE_ID: "${TORQUE_SEARCH_ENGINE_ID:-}"
     volumes:

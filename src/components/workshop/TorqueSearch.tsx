@@ -30,7 +30,7 @@ export default function TorqueSearch({ vehicle, close, refresh }: { vehicle: Veh
   const [saveError, setSaveError] = useState("");
   const candidates = data?.candidates ?? [];
   const chosen = candidates.filter(candidate => selected[candidateKey(candidate)]);
-  const configuredError = /not configured|TORQUE_SEARCH/i.test(error);
+  const configuredError = /TORQUE_SEARCH_KEY/i.test(error);
 
   useEffect(() => { void run(); }, [vehicle.id]);
 
@@ -64,16 +64,16 @@ export default function TorqueSearch({ vehicle, close, refresh }: { vehicle: Veh
     <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto rounded-2xl border-border bg-white p-6 sm:rounded-2xl sm:p-8">
       <DialogHeader>
         <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><Globe size={22} /></span>
-        <DialogTitle className="font-heading text-2xl font-bold">Search tightening torques online</DialogTitle>
-        <DialogDescription className="pt-1 leading-6">Look up <span className="font-semibold text-foreground">{vehicle.make} {vehicle.model}{vehicle.engine ? ` · ${vehicle.engine}` : ""}</span> on the web. Nothing is saved until you review the rows and add them.</DialogDescription>
+        <DialogTitle className="font-heading text-2xl font-bold">Search tightening torques with Brave</DialogTitle>
+        <DialogDescription className="pt-1 leading-6">Look up <span className="font-semibold text-foreground">{vehicle.make} {vehicle.model}{vehicle.engineModel || vehicle.engine ? ` · ${vehicle.engineModel || vehicle.engine}` : ""}</span> on Brave Search. Nothing is saved until you review the rows and add them.</DialogDescription>
       </DialogHeader>
 
       <div className="mt-3 space-y-4">
-        {loading && <div className="flex items-center justify-center gap-3 rounded-xl border border-border bg-background/60 py-12 text-sm text-muted-foreground"><Loader2 size={19} className="animate-spin text-primary" />Searching the web…</div>}
+        {loading && <div className="flex items-center justify-center gap-3 rounded-xl border border-border bg-background/60 py-12 text-sm text-muted-foreground"><Loader2 size={19} className="animate-spin text-primary" />Searching Brave…</div>}
 
         {!loading && error && <div role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 p-4">
           <p className="text-sm text-destructive">{error}</p>
-          {configuredError && <p className="mt-2 text-[11px] leading-5 text-muted-foreground">An administrator can enable this with <code className="rounded bg-white px-1">TORQUE_SEARCH_URL</code> and, if the provider needs one, <code className="rounded bg-white px-1">TORQUE_SEARCH_KEY</code> in the server environment, then restart the app.</p>}
+          {configuredError && <p className="mt-2 text-[11px] leading-5 text-muted-foreground">An administrator can enable Brave Search by setting <code className="rounded bg-white px-1">TORQUE_SEARCH_KEY</code> to a Brave Search API subscription token in the server environment, then restarting the app. The endpoint is preconfigured.</p>}
           {!configuredError && <Button variant="outline" onClick={() => run()} className="mt-3 h-9 rounded-lg text-xs">Try again</Button>}
         </div>}
 

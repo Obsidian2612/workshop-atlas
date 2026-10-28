@@ -194,7 +194,7 @@ That paste flow is the manual counterpart to the PDF sheet path: both show a pre
 
 ### Google Gemini lookup
 
-The vehicle page offers **Search times with Gemini** in the repair-times header and **Search torques with Gemini** in the tightening-torques header. The server asks Gemini for manufacturer-standard times (or torque specifications) using the vehicle's VIN, with make, model, year and engine as context, and shows the candidate rows in a preview dialog. Only the rows you tick and confirm are written. Repair times are stored on that vehicle with the `gemini` source and are not added to the licensed VIN dataset; torques are merged into the vehicle's existing torque table.
+The vehicle page offers **Search times with Gemini** in the repair-times header. The server asks Gemini for candidate repair times using the vehicle's VIN, with make, model and year as context, and shows the results in a preview dialog. Only the rows you tick and confirm are written. Repair times are stored on that vehicle with the `gemini` source and are not added to the licensed VIN dataset. Tightening torque searches use Brave Search; see [Online torque specification search](#online-torque-specification-search).
 
 | Variable | Purpose |
 | --- | --- |
@@ -202,42 +202,35 @@ The vehicle page offers **Search times with Gemini** in the repair-times header 
 | `GEMINI_MODEL` | Gemini model, default `gemini-3.8-flash`. |
 | `GEMINI_TIMEOUT_MS` | Lookup timeout, default `60000`. |
 
-Requests use Gemini's low thinking level and ask for at most 40 repair times or 25 torques, which keeps generation inside the timeout. If a lookup still times out, raise `GEMINI_TIMEOUT_MS`.
+Requests use Gemini's low thinking level and ask for at most 40 repair times, which keeps generation inside the timeout. If a lookup still times out, raise `GEMINI_TIMEOUT_MS`.
 
-Create a key at <https://aistudio.google.com/apikey> and set it in the server environment or the compose environment. Lookups require an editor or administrator account. Repair-time lookups need a VIN; torque lookups can use the make, model, year, engine / variant, engine model and engine number when the vehicle has no VIN. Both engine fields are optional vehicle details, and the more of them you record the more specific the torque prompt becomes. AI-generated values are estimates: check them against an authorised source before using them for quotes, billing or safety-critical fasteners.
+Create a key at <https://aistudio.google.com/apikey> and set it in the server environment or the compose environment. Lookups require an editor or administrator account. Repair-time lookups need a VIN. AI-generated times are estimates; check them against an authorised source before using them for quotes or billing.
 
 ## Online torque specification search
 
-The **Tightening torques** section on a vehicle page offers **Search online**. The server asks a configured web-search provider for pages about that vehicle, reads a few of the returned pages, extracts rows that look like a fastener with a recognised torque unit, and shows them in a preview dialog. **Nothing is written until you tick the rows you trust and press Add selected.** The lookup uses the vehicle's make, model, year and engine code; a VIN is used as a fallback when no engine is recorded. It is not a Google scraper: Google has no free search API for new projects (Custom Search JSON API is closed to new customers and ends for existing customers on 1 January 2027), so the provider is configurable.
+The **Tightening torques** section on a vehicle page offers **Search torque specifications with Brave**. The server sends the vehicle's make, model, year and engine identifiers (engine model/number first, then variant; VIN as a fallback) to Brave Search, reads a few returned pages, extracts rows that look like a fastener with a recognised torque unit, and shows them in a preview dialog. **Nothing is written until you tick the rows you trust and press Add selected.** This is a web search, not a source of verified manufacturer data; check safety-critical values against an authorised service source.
 
 ### Configuration
 
 | Variable | Purpose |
 | --- | --- |
-| `TORQUE_SEARCH_URL` | Search endpoint. Required to enable the button. |
-| `TORQUE_SEARCH_PROVIDER` | `google`, `serper`, `brave` or `generic` (default `generic`). |
-| `TORQUE_SEARCH_KEY` | API key / bearer token, when the provider requires one. |
-| `TORQUE_SEARCH_ENGINE_ID` | Google Programmable Search engine ID (`cx`). |
+| `TORQUE_SEARCH_KEY` | Brave Search API subscription token. Required to enable searches. |
+| `TORQUE_SEARCH_URL` | Optional endpoint override; defaults to Brave's Web Search endpoint. |
+| `TORQUE_SEARCH_PROVIDER` | Optional provider override; defaults to `brave`. |
 | `TORQUE_SEARCH_PAGES` | Pages read per search, 1–4 (default 3). |
 | `TORQUE_SEARCH_TIMEOUT_MS` | Per-request timeout, default 8000. |
 | `TORQUE_SEARCH_ALLOW_PRIVATE` | Development only. `1` disables the private-address guard so tests can read a local mock page. Never set it on a deployed server. |
 
-Google (existing Custom Search customer):
-
-```
-TORQUE_SEARCH_PROVIDER=google
-TORQUE_SEARCH_URL=https://www.googleapis.com/customsearch/v1
-TORQUE_SEARCH_KEY=...
-TORQUE_SEARCH_ENGINE_ID=...
-```
-
-Brave:
+Set the Brave Search API subscription token in your server environment (or the Docker stack environment):
 
 ```
 TORQUE_SEARCH_PROVIDER=brave
-TORQUE_SEARCH_URL=https://api.search.brave.com/res/v1/web/search
 TORQUE_SEARCH_KEY=...
 ```
+
+The default endpoint is `https://api.search.brave.com/res/v1/web/search`; you do not need to set `TORQUE_SEARCH_URL` unless overriding it.
+
+Brave currently advertises a $5 monthly credit at $5 per 1,000 requests (roughly 1,000 monthly searches at list price), rather than a daily free quota. Check the [current Brave pricing](https://api-dashboard.search.brave.com/documentation/pricing) before relying on the allowance.
 
 Serper:
 
@@ -274,7 +267,7 @@ Items may use `link` instead of `url` and `description` instead of `snippet`.
 - Rows are merged by fastener and stage, so re-running a search replaces matching values instead of duplicating them.
 - Online values are third-party content. Verify safety-critical figures against an authorised source; the preview says so and the app stores only what you confirm.
 
-The search provider sees the vehicle's make, model, year and engine. The VIN is only included when no engine is recorded, and is otherwise used only for the local cache key.
+Brave Search receives the vehicle's make, model, year and engine identifiers, including the engine number when recorded. The VIN is included only when no engine model, number or variant is recorded; otherwise it is used only for the local cache key.
 
 ## Partsouq vehicle lookup
 

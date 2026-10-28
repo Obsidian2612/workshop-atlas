@@ -28,7 +28,7 @@ export default defineHandler(async event => {
     if (!vehicle) fail(404, "That vehicle is not in this workshop");
     return {
       userId: user.id,
-      vehicle: { make: vehicle.make, model: vehicle.model, year: vehicle.year, engine: vehicle.engine, vin: vehicle.vin },
+      vehicle: { make: vehicle.make, model: vehicle.model, year: vehicle.year, engine: vehicle.engine, engineModel: vehicle.engineModel, engineNumber: vehicle.engineNumber, vin: vehicle.vin },
     };
   });
   throttle(snapshot.userId);
