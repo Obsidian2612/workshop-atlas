@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, Globe, Loader2, Search, ShieldAlert } from "lucide-react";
+import { ClipboardPaste, ExternalLink, Globe, Loader2, Search, ShieldAlert } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +21,7 @@ function hostOf(url: string) {
  * rows and confirms. Values come from third-party pages, so the warning stays
  * visible while the rows are reviewed.
  */
-export default function TorqueSearch({ vehicle, close, refresh }: { vehicle: Vehicle; close: () => void; refresh: () => Promise<void> }) {
+export default function TorqueSearch({ vehicle, close, refresh, onPaste }: { vehicle: Vehicle; close: () => void; refresh: () => Promise<void>; onPaste: () => void }) {
   const [data, setData] = useState<TorqueSearchResponse | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
@@ -105,7 +105,8 @@ export default function TorqueSearch({ vehicle, close, refresh }: { vehicle: Veh
           </div> : <div className="rounded-xl border border-dashed border-border p-8 text-center">
             <Search size={22} className="mx-auto text-muted-foreground" />
             <p className="mt-3 text-sm font-semibold">No torque values were recognised.</p>
-            <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-muted-foreground">Pages often show ranges, pictures or headings only. Open a result, copy its torque table, and use <span className="font-semibold text-foreground">Paste from the program</span> for a manual review.</p>
+            <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-muted-foreground">Pages often show ranges, pictures or headings only. Open a cited source, copy its torque table, and paste it into the app for a manual review.</p>
+            <Button type="button" variant="outline" onClick={onPaste} className="mt-4 h-9 rounded-lg text-xs"><ClipboardPaste size={14} className="mr-2" />Paste a torque table</Button>
           </div>}
 
           <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] leading-5 text-amber-900"><ShieldAlert size={15} className="mt-0.5 shrink-0" /><p>Third-party values can be wrong, incomplete or out of date. Check them against an authorised source before tightening safety-critical fasteners.</p></div>
