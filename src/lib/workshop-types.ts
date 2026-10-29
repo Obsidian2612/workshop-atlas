@@ -1,7 +1,13 @@
 export type Role = "admin" | "editor" | "viewer";
 export type RecordKind = "procedure" | "note" | "service";
 export type RepairTimeSource = "imported" | "provider" | "manual" | "gemini";
-export interface RepairTimeEntry { operation: string; minutes: number; source: RepairTimeSource }
+export interface RepairTimeEntry {
+  operation: string;
+  minutes: number;
+  source: RepairTimeSource;
+  combinedWith?: string[];
+  timeSavingMinutes?: number;
+}
 export interface GeminiRepairRow { vin: string; operation: string; minutes: number }
 export interface GeminiTorqueRow extends TorqueSpec { vin: string }
 export const torqueUnits = ["Nm", "lbf·ft", "lbf·in", "kgf·m"] as const;
