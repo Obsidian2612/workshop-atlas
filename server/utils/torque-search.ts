@@ -203,7 +203,6 @@ async function askGroq(vehicle: SearchVehicle): Promise<GroqSearchReply> {
       body: JSON.stringify({
         model,
         messages: [{ role: "user", content: promptFor(vehicle) }],
-        citation_options: "enabled",
         temperature: 1,
         max_completion_tokens: 4096,
         reasoning_effort: "low",
