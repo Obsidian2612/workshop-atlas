@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { api } from "@/lib/workshop-api";
-import type { GeminiRepairRow, Vehicle } from "@/lib/workshop-types";
+import type { GroqRepairRow, Vehicle } from "@/lib/workshop-types";
 import { toast } from "sonner";
 
-const rowKey = (row: GeminiRepairRow) => `${row.operation}\u0000${row.minutes}`;
+const rowKey = (row: GroqRepairRow) => `${row.operation}\u0000${row.minutes}`;
 const formatMinutes = (minutes: number) => minutes >= 60 ? `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ""}` : `${minutes} min`;
 
 /*

@@ -94,7 +94,39 @@ function cleanString(value: unknown, max = 200) {
 
 function cleanStrings(value: unknown) {
   if (!Array.isArray(value)) return [];
-  return value.map(item => cleanString(item)).filter(Boolean);
+  return value.slice(0, 6).map(item => cleanString(item)).filter(Boolean);
+}
+
+/** Rows the reader approved in the preview dialog, cleaned again before saving. */
+export function cleanRepairTimeRows(input: unknown): RepairTimeEntry[] {
+  if (!Array.isArray(input)) return [];
+  const rows = new Map<string, RepairTimeEntry>();
+  for (const candidate of input) {
+    if (rows.size >= maxRows) break;
+    if (!candidate || typeof candidate !== "object") continue;
+    const row = candidate as Record<string, unknown>;
+    const operation = cleanOperation(row.operation);
+    const minutes = cleanMinutes(row.minutes);
+    if (!operation || minutes === null) continue;
+    // The first row for an operation wins, so a later duplicate cannot drop the
+    // overlap notes the reader already saw in the preview.
+    if (rows.has(operation.toLowerCase())) continue;
+    rows.set(operation.toLowerCase(), {
+      operation,
+      minutes,
+      source: "provider",
+      combinedWith: cleanStrings(row.combinedWith),
+      timeSavingMinutes: cleanMinutes(row.timeSavingMinutes) ?? 0,
+    });
+  }
+  return [...rows.values()];
+}
+
+/** Add or replace repair times by operation name, keeping the vehicle's other rows. */
+export function mergeRepairTimes(existing: RepairTimeEntry[], incoming: RepairTimeEntry[]): RepairTimeEntry[] {
+  const merged = new Map(existing.map(entry => [entry.operation.toLowerCase(), entry]));
+  for (const entry of incoming) merged.set(entry.operation.toLowerCase(), entry);
+  return [...merged.values()].sort((a, b) => a.operation.localeCompare(b.operation));
 }
 
 function parseRepairTimes(reply: string): RepairTimeEntry[] {

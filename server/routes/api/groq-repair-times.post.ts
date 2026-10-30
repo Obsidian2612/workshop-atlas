@@ -1,7 +1,7 @@
 import { defineHandler } from "nitro";
 import { readBody } from "nitro/h3";
-import { fail, requireUser, transact } from "../../utils/store";
-import { searchRepairTimes } from "../../utils/groq-repair-times";
+import { fail, logActivity, requireUser, transact } from "../../utils/store";
+import { cleanRepairTimeRows, mergeRepairTimes, searchRepairTimes } from "../../utils/groq-repair-times";
 
 const windows = new Map<string, number[]>();
 
@@ -21,6 +21,23 @@ export default defineHandler(async event => {
   if (!body || typeof body !== "object") fail(400, "Invalid request");
   const vehicleId = typeof body.vehicleId === "string" ? body.vehicleId.trim() : "";
   if (!vehicleId) fail(400, "Choose a vehicle to search for");
+
+  if (body.apply === true) {
+    // The dialog sends back only the rows the reader ticked; nothing is re-searched.
+    const rows = cleanRepairTimeRows(body.operations);
+    if (!rows.length) fail(400, "Choose at least one repair time to add");
+    return transact(db => {
+      const user = requireUser(db, event.req, "write");
+      const vehicle = db.vehicles.find(item => item.id === vehicleId);
+      if (!vehicle) fail(404, "That vehicle is not in this workshop");
+      vehicle.repairTimes = mergeRepairTimes(vehicle.repairTimes || [], rows);
+      vehicle.repairTimesSource = [...new Set(vehicle.repairTimes.map(entry => entry.source))].join(" + ");
+      vehicle.repairTimesUpdatedAt = new Date().toISOString();
+      logActivity(db, user, `Added ${rows.length} repair times to ${`${vehicle.make} ${vehicle.model}`.trim() || "a vehicle"}`);
+      return { applied: rows.length };
+    }, true);
+  }
+
   const snapshot = await transact(db => {
     // Provider calls spend quota, so only editors and administrators can run them.
     const user = requireUser(db, event.req, "write");

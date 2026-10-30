@@ -8,7 +8,8 @@ export interface RepairTimeEntry {
   combinedWith?: string[];
   timeSavingMinutes?: number;
 }
-export interface GeminiRepairRow { vin: string; operation: string; minutes: number }
+export interface GeminiRepairRow { vin: string; operation: string; minutes: number; combinedWith?: string[]; timeSavingMinutes?: number }
+export interface GroqRepairRow { operation: string; minutes: number; combinedWith?: string[]; timeSavingMinutes?: number }
 export interface GeminiTorqueRow extends TorqueSpec { vin: string }
 export const torqueUnits = ["Nm", "lbf·ft", "lbf·in", "kgf·m"] as const;
 export type TorqueUnit = (typeof torqueUnits)[number];
@@ -16,6 +17,13 @@ export interface TorqueSpec { fastener: string; stage: string; value: number; un
 export interface TorqueSearchCandidate extends TorqueSpec { sourceTitle: string; sourceUrl: string; snippet: string; mentions: number }
 export interface TorqueSearchSource { title: string; url: string; snippet: string }
 export interface TorqueSearchResponse { query: string; provider: string; results: TorqueSearchSource[]; candidates: TorqueSearchCandidate[]; fetched: number; cached?: boolean }
+export interface SpecSheetRow { label: string; value: string; note?: string }
+export interface SpecSheetSection { title: string; rows: SpecSheetRow[] }
+export interface SpecSheetIdentification { make: string; model: string; year: string; engine: string; engineModel: string; engineNumber: string; vin: string }
+export interface VehicleSpecSheet {
+  identification: SpecSheetIdentification; sections: SpecSheetSection[]; torques: TorqueSpec[];
+  repairTimes: RepairTimeEntry[]; sources: TorqueSearchSource[];
+}
 export interface User { id: string; name: string; email: string; role: Role }
 export interface Vehicle {
   id: string; make: string; model: string; year: string; engine: string;
