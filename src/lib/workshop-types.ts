@@ -1,15 +1,33 @@
 export type Role = "admin" | "editor" | "viewer";
 export type RecordKind = "procedure" | "note" | "service";
 export type RepairTimeSource = "imported" | "provider" | "manual" | "gemini";
+/** Operation codes used on repair-time sheets and workshop estimates. */
+export const repairScopeCodes = ["R&I", "S&R", "C&A", "D&R", "Disconnect", "Partially remove"] as const;
+export type RepairScopeCode = (typeof repairScopeCodes)[number];
+/** One bundled line inside a repair time, e.g. "Camshaft/valve cover & gasket — R&I". */
+export interface RepairTimeStep {
+  label: string;
+  /** R&I, S&R, C&A, D&R or any other code the sheet uses. */
+  scope: string;
+  minutes: number;
+}
 export interface RepairTimeEntry {
   operation: string;
   minutes: number;
   source: RepairTimeSource;
+  /** R&I (remove and install), S&R (service and repair) and similar codes. */
+  scope?: string;
+  /** The other steps this operation's time includes. */
+  includes?: RepairTimeStep[];
+  /** The date the time is captured for. Future dates are listed as upcoming. */
+  capturedAt?: string;
+  notes?: string;
   combinedWith?: string[];
   timeSavingMinutes?: number;
 }
 export interface GeminiRepairRow { vin: string; operation: string; minutes: number; combinedWith?: string[]; timeSavingMinutes?: number }
 export interface GroqRepairRow { operation: string; minutes: number; combinedWith?: string[]; timeSavingMinutes?: number }
+export interface ManualRepairTimeRow { operation: string; minutes: number; scope?: string; includes?: RepairTimeStep[]; capturedAt?: string; notes?: string }
 export interface GeminiTorqueRow extends TorqueSpec { vin: string }
 export const torqueUnits = ["Nm", "lbf·ft", "lbf·in", "kgf·m"] as const;
 export type TorqueUnit = (typeof torqueUnits)[number];

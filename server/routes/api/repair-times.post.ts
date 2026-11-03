@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { defineHandler } from "nitro";
 import { dataDir, fail, filename, logActivity, requireUser, transact, text } from "../../utils/store";
-import { importRepairTimes, parseRepairTimeImport, refreshVehicleRepairTimes, applySheetRepairTimes } from "../../utils/repair-times";
+import { importRepairTimes, parseRepairTimeImport, refreshVehicleRepairTimes, applySheetRepairTimes, cleanManualRepairTime, removeManualRepairTime, saveManualRepairTime } from "../../utils/repair-times";
 import { parseRepairSheet, parseRepairText } from "../../utils/repair-sheet";
 import { parseVehicleIdentification } from "../../utils/vehicle-sheet";
 import { mergeTorqueSpecs, parseTorqueText } from "../../utils/torques";
@@ -33,6 +33,33 @@ export default defineHandler(async event => {
     const vehicle = await refreshVehicleRepairTimes(vehicleId, true);
     if (!vehicle) fail(404, "That vehicle has no VIN, so repair times cannot be looked up");
     return vehicle;
+  }
+
+  if (action === "manual") {
+    // Times the reader types in by hand: operation, R&I/S&R code, the steps the
+    // time includes, and the day it was captured for (past or scheduled ahead).
+    const vehicleId = typeof body.vehicleId === "string" ? body.vehicleId.trim() : "";
+    if (!vehicleId) fail(400, "Choose the vehicle this repair time belongs to");
+    const user = await transact(db => requireUser(db, event.req, "write"));
+
+    const remove = typeof body.remove === "string" ? body.remove.trim() : "";
+    if (remove) {
+      const result = await removeManualRepairTime(vehicleId, remove);
+      if (!result) fail(404, "That vehicle is not in this workshop");
+      await transact(db => { logActivity(db, user, `Deleted manual repair time ${remove}`); return null; }, true);
+      return result;
+    }
+
+    const entry = cleanManualRepairTime(body.entry);
+    const originalOperation = typeof body.originalOperation === "string" ? body.originalOperation.trim().slice(0, 200) : "";
+    const vehicle = await saveManualRepairTime(vehicleId, entry, originalOperation);
+    if (!vehicle) fail(404, "That vehicle is not in this workshop");
+    await transact(db => {
+      const label = `${vehicle.make} ${vehicle.model}`.trim() || "a vehicle";
+      logActivity(db, user, `Recorded manual repair time ${entry.operation} on ${label}`);
+      return null;
+    }, true);
+    return { vehicle, entry };
   }
 
   if (action === "paste") {

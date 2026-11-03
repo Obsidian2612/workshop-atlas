@@ -125,7 +125,11 @@ export function cleanRepairTimeRows(input: unknown): RepairTimeEntry[] {
 /** Add or replace repair times by operation name, keeping the vehicle's other rows. */
 export function mergeRepairTimes(existing: RepairTimeEntry[], incoming: RepairTimeEntry[]): RepairTimeEntry[] {
   const merged = new Map(existing.map(entry => [entry.operation.toLowerCase(), entry]));
-  for (const entry of incoming) merged.set(entry.operation.toLowerCase(), entry);
+  for (const entry of incoming) {
+    // A hand-entered time wins over an AI estimate for the same operation.
+    if (merged.get(entry.operation.toLowerCase())?.source === "manual") continue;
+    merged.set(entry.operation.toLowerCase(), entry);
+  }
   return [...merged.values()].sort((a, b) => a.operation.localeCompare(b.operation));
 }
 

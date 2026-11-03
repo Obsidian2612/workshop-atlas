@@ -17,7 +17,12 @@ export async function applySheetRepairTimes(vehicleId: string, operations: { ope
     if (!vehicle) return null;
     const merged = new Map<string, RepairTimeEntry>();
     for (const entry of vehicle.repairTimes || []) merged.set(entry.operation.toLowerCase(), entry);
-    for (const entry of operations) merged.set(entry.operation.toLowerCase(), { operation: entry.operation, minutes: entry.minutes, source: "imported" as const });
+    for (const entry of operations) {
+      const key = entry.operation.toLowerCase();
+      // A time the reader typed in by hand stays put; a sheet must not replace it.
+      if (merged.get(key)?.source === "manual") continue;
+      merged.set(key, { operation: entry.operation, minutes: entry.minutes, source: "imported" as const });
+    }
     vehicle.repairTimes = [...merged.values()].sort((a, b) => a.operation.localeCompare(b.operation));
     const sources = new Set(vehicle.repairTimes.map(e => e.source));
     vehicle.repairTimesSource = sources.has("provider") ? "provider + imported" : Array.from(sources).join(" + ") || "imported";
@@ -206,6 +211,103 @@ async function fetchProvider(vehicle: Pick<Vehicle, "vin" | "make" | "model" | "
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Keep the reader's own repair times sorted by name, as the other sources are. */
+export function sortRepairTimes(entries: RepairTimeEntry[]) {
+  return [...entries].sort((a, b) => a.operation.localeCompare(b.operation));
+}
+
+function cleanScope(value: unknown) {
+  const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  return text.slice(0, 40);
+}
+
+function cleanNotes(value: unknown) {
+  const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  return text.slice(0, 500);
+}
+
+/** A capture date is a plain day, so a scheduled job is comparable to today. */
+function cleanCapturedAt(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return "";
+  const day = value.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) fail(400, "Captured date must be written as YYYY-MM-DD");
+  const parsed = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== day) fail(400, "That captured date is not a real date");
+  return day;
+}
+
+function cleanIncludes(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const steps: RepairTimeEntry["includes"] = [];
+  for (const candidate of value.slice(0, 40)) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const row = candidate as Record<string, unknown>;
+    const label = cleanOperation(row.label);
+    if (!label) continue;
+    const minutes = cleanMinutes(row.minutes) ?? 0;
+    steps.push({ label, scope: cleanScope(row.scope), minutes });
+  }
+  return steps;
+}
+
+/** Validate one hand-entered repair time before it is stored on a vehicle. */
+export function cleanManualRepairTime(input: unknown): Omit<RepairTimeEntry, "source"> {
+  if (!input || typeof input !== "object") fail(400, "A repair time is required");
+  const row = input as Record<string, unknown>;
+  const operation = cleanOperation(row.operation);
+  if (!operation) fail(400, "Give the repair time an operation name");
+  const minutes = cleanMinutes(row.minutes);
+  if (minutes === null) fail(400, "Repair time must be a whole number of minutes between 0 and 1440");
+  const includes = cleanIncludes(row.includes);
+  // A bundled step cannot push the operation past a single working day either.
+  const included = includes?.reduce((sum, step) => sum + step.minutes, 0) ?? 0;
+  if (included > 1440) fail(400, "The included steps add up to more than 1440 minutes");
+  return {
+    operation,
+    minutes,
+    ...(cleanScope(row.scope) ? { scope: cleanScope(row.scope) } : {}),
+    ...(includes?.length ? { includes } : {}),
+    ...(cleanCapturedAt(row.capturedAt) ? { capturedAt: cleanCapturedAt(row.capturedAt) } : {}),
+    ...(cleanNotes(row.notes) ? { notes: cleanNotes(row.notes) } : {}),
+  };
+}
+
+/**
+ * Add or replace a hand-entered repair time on one vehicle. `originalOperation`
+ * renames an existing row instead of leaving the old name behind.
+ */
+export async function saveManualRepairTime(vehicleId: string, entry: Omit<RepairTimeEntry, "source">, originalOperation = "") {
+  const now = new Date().toISOString();
+  return transact(db => {
+    const vehicle = db.vehicles.find(item => item.id === vehicleId);
+    if (!vehicle) return null;
+    const merged = new Map((vehicle.repairTimes || []).map(item => [item.operation.toLowerCase(), item]));
+    if (originalOperation) merged.delete(originalOperation.toLowerCase());
+    merged.set(entry.operation.toLowerCase(), { ...entry, source: "manual" as const });
+    vehicle.repairTimes = sortRepairTimes([...merged.values()]);
+    vehicle.repairTimesSource = [...new Set(vehicle.repairTimes.map(item => item.source))].join(" + ");
+    vehicle.repairTimesUpdatedAt = now;
+    return vehicle;
+  }, true);
+}
+
+/** Only a hand-entered row can be deleted here; imported and AI rows stay put. */
+export async function removeManualRepairTime(vehicleId: string, operation: string) {
+  const now = new Date().toISOString();
+  return transact(db => {
+    const vehicle = db.vehicles.find(item => item.id === vehicleId);
+    if (!vehicle) return null;
+    const key = operation.toLowerCase();
+    const target = (vehicle.repairTimes || []).find(item => item.operation.toLowerCase() === key);
+    if (!target) return { removed: false };
+    if (target.source !== "manual") fail(403, "Only repair times you entered by hand can be deleted here");
+    vehicle.repairTimes = (vehicle.repairTimes || []).filter(item => item.operation.toLowerCase() !== key);
+    vehicle.repairTimesSource = [...new Set(vehicle.repairTimes.map(item => item.source))].join(" + ") || "none";
+    vehicle.repairTimesUpdatedAt = now;
+    return { removed: true };
+  }, true);
 }
 
 export async function refreshVehicleRepairTimes(vehicleId: string, force = false) {
