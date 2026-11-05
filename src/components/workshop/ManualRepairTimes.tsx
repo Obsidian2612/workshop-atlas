@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { Clock, Loader2, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Clock, Loader2, Plus, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { api } from "@/lib/workshop-api";
 import { repairScopeCodes, type RepairTimeEntry, type Vehicle } from "@/lib/workshop-types";
 import { Pick } from "./primitives";
@@ -41,6 +43,8 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
   const [csv, setCsv] = useState("");
   const [csvBusy, setCsvBusy] = useState(false);
   const [csvError, setCsvError] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
   // Other known times on this vehicle, offered as suggestions for step rows.
   const knownTimes = (vehicle.repairTimes || []).filter(item => item.operation !== (entry?.operation || ""));
   const code = scope === "none" ? "" : scope;
@@ -58,6 +62,21 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
       if (!match) return { ...step, label };
       return { ...step, label, scope: step.scope === "none" ? match.scope || "none" : step.scope, minutes: step.minutes || String(match.minutes) };
     }));
+  }
+
+  // Several known times can become steps at once; names already in the list are skipped.
+  function addPickedSteps() {
+    setSteps(current => {
+      const have = new Set(current.map(step => step.label.trim().toLowerCase()));
+      const added = picked.flatMap(name => {
+        const match = knownTimes.find(item => item.operation === name);
+        if (!match || have.has(match.operation.trim().toLowerCase())) return [];
+        return [{ label: match.operation, scope: match.scope || "none", minutes: String(match.minutes) }];
+      });
+      return [...current, ...added];
+    });
+    setPicked([]);
+    setPickerOpen(false);
   }
 
   async function importCsv() {
@@ -156,9 +175,32 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-xs font-semibold">Steps this time includes</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">{steps.length ? `${steps.length} step${steps.length === 1 ? "" : "s"} · ${includedMinutes} min total` : "Optional. List the bundled operations and their own codes."}</p>{knownTimes.length > 0 && <p className="mt-1 text-[11px] text-muted-foreground">Start typing a step to pick one of this vehicle's {knownTimes.length} known repair times.</p>}
+              <p className="mt-1 text-[11px] text-muted-foreground">{steps.length ? `${steps.length} step${steps.length === 1 ? "" : "s"} · ${includedMinutes} min total` : "Optional. List the bundled operations and their own codes."}</p>{knownTimes.length > 0 && <p className="mt-1 text-[11px] text-muted-foreground">Start typing a step to pick one of this vehicle's {knownTimes.length} known repair times, or tick several at once.</p>}
             </div>
-            <Button type="button" variant="outline" onClick={() => setSteps(current => [...current, { label: "", scope: "none", minutes: "" }])} className="h-9 rounded-lg text-xs"><Plus size={14} className="mr-1.5" />Add step</Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {knownTimes.length > 0 && <Popover open={pickerOpen} onOpenChange={open => { setPickerOpen(open); if (!open) setPicked([]); }}>
+                <PopoverTrigger asChild>
+                  <Button type="button" variant="outline" className="h-9 rounded-lg text-xs"><ChevronDown size={14} className="mr-1.5" />Pick known times</Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-80 rounded-xl border-border bg-white p-0 shadow-xl">
+                  <p className="border-b border-border px-4 py-3 text-xs font-semibold">Add this vehicle's known repair times as steps</p>
+                  <div className="max-h-64 overflow-y-auto p-2">
+                    {knownTimes.map(item => <div key={item.operation} onClick={() => setPicked(current => current.includes(item.operation) ? current.filter(name => name !== item.operation) : [...current, item.operation])} className="flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-muted/60">
+                      <span className="mt-0.5" onClick={event => event.stopPropagation()}><Checkbox aria-label={item.operation} checked={picked.includes(item.operation)} onCheckedChange={checked => setPicked(current => checked ? [...current, item.operation] : current.filter(name => name !== item.operation))} /></span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-medium">{item.operation}</span>
+                        <span className="block text-[11px] text-muted-foreground">{item.minutes} min{item.scope ? ` · ${item.scope}` : ""}</span>
+                      </span>
+                    </div>)}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2.5">
+                    <button type="button" onClick={() => setPicked(knownTimes.map(item => item.operation))} className="text-[11px] font-semibold text-primary hover:underline">Select all</button>
+                    <Button type="button" disabled={!picked.length} onClick={addPickedSteps} className="h-8 rounded-lg px-3 text-xs">Add {picked.length || ""} step{picked.length === 1 ? "" : "s"}</Button>
+                  </div>
+                </PopoverContent>
+              </Popover>}
+              <Button type="button" variant="outline" onClick={() => setSteps(current => [...current, { label: "", scope: "none", minutes: "" }])} className="h-9 rounded-lg text-xs"><Plus size={14} className="mr-1.5" />Add step</Button>
+            </div>
           </div>
 
           {steps.length > 0 && <div className="mt-3 space-y-2">{steps.map((step, index) => <div key={index} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_5.5rem_2.5rem]">
