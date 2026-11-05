@@ -95,12 +95,8 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
     event.preventDefault();
     setError("");
     const value = Number(minutes);
-    if (!Number.isInteger(value) || value < 0 || value > 1440) {
-      setError("Repair time must be a whole number of minutes between 0 and 1440.");
-      return;
-    }
-    if (includedMinutes > 1440) {
-      setError("The included steps add up to more than 1440 minutes.");
+    if (!Number.isInteger(value) || value < 0) {
+      setError("Repair time must be a whole number of minutes of 0 or more.");
       return;
     }
     setBusy(true);
@@ -163,7 +159,7 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
           </div>
           <div>
             <Label htmlFor="minutes" className="text-xs font-semibold">Repair time (minutes)</Label>
-            <Input id="minutes" type="number" min="0" max="1440" step="1" value={minutes} onChange={event => setMinutes(event.target.value)} required placeholder="e.g. 90" className="mt-2 h-11 rounded-lg border-border bg-white text-sm" />
+            <Input id="minutes" type="number" min="0" step="1" value={minutes} onChange={event => setMinutes(event.target.value)} required placeholder="e.g. 90" className="mt-2 h-11 rounded-lg border-border bg-white text-sm" />
           </div>
           <div>
             <Label htmlFor="capturedAt" className="text-xs font-semibold">Captured for</Label>
@@ -206,7 +202,7 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
           {steps.length > 0 && <div className="mt-3 space-y-2">{steps.map((step, index) => <div key={index} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_5.5rem_2.5rem]">
             <Input aria-label={`Step ${index + 1} description`} list="known-repair-times" value={step.label} onChange={event => changeStepLabel(index, event.target.value)} placeholder="e.g. Camshaft/valve cover & gasket" maxLength={200} className="h-10 rounded-lg border-border bg-white text-xs" />
             <Pick label={`Step ${index + 1} code`} value={step.scope} onChange={value => changeStep(index, { scope: value })} options={scopeOptions} />
-            <Input aria-label={`Step ${index + 1} minutes`} type="number" min="0" max="1440" step="1" value={step.minutes} onChange={event => changeStep(index, { minutes: event.target.value })} placeholder="min" className="h-10 rounded-lg border-border bg-white text-xs" />
+            <Input aria-label={`Step ${index + 1} minutes`} type="number" min="0" step="1" value={step.minutes} onChange={event => changeStep(index, { minutes: event.target.value })} placeholder="min" className="h-10 rounded-lg border-border bg-white text-xs" />
             <Button type="button" aria-label={`Remove step ${index + 1}`} variant="ghost" size="icon" onClick={() => setSteps(current => current.filter((_, at) => at !== index))} className="h-10 w-10 rounded-lg text-destructive"><Trash2 size={14} /></Button>
           </div>)}</div>}
         </div>

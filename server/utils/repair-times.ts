@@ -52,7 +52,8 @@ function cleanOperation(value: unknown) {
 }
 function cleanMinutes(value: unknown) {
   const minutes = Number(value);
-  return Number.isInteger(minutes) && minutes >= 0 && minutes <= 1440 ? minutes : null;
+  // No ceiling: a long job can legitimately run past a working day.
+  return Number.isInteger(minutes) && minutes >= 0 ? minutes : null;
 }
 function cleanVin(value: unknown) {
   const vin = typeof value === "string" ? value.trim().toUpperCase() : "";
@@ -259,11 +260,8 @@ export function cleanManualRepairTime(input: unknown): Omit<RepairTimeEntry, "so
   const operation = cleanOperation(row.operation);
   if (!operation) fail(400, "Give the repair time an operation name");
   const minutes = cleanMinutes(row.minutes);
-  if (minutes === null) fail(400, "Repair time must be a whole number of minutes between 0 and 1440");
+  if (minutes === null) fail(400, "Repair time must be a whole number of minutes of 0 or more");
   const includes = cleanIncludes(row.includes);
-  // A bundled step cannot push the operation past a single working day either.
-  const included = includes?.reduce((sum, step) => sum + step.minutes, 0) ?? 0;
-  if (included > 1440) fail(400, "The included steps add up to more than 1440 minutes");
   return {
     operation,
     minutes,
