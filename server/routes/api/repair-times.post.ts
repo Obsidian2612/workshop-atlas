@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { defineHandler } from "nitro";
 import { dataDir, fail, filename, logActivity, requireUser, transact, text } from "../../utils/store";
-import { importRepairTimes, parseRepairTimeImport, refreshVehicleRepairTimes, applySheetRepairTimes, cleanManualRepairTime, removeManualRepairTime, saveManualRepairTime } from "../../utils/repair-times";
+import { importRepairTimes, parseRepairTimeImport, refreshVehicleRepairTimes, applySheetRepairTimes, cleanManualRepairTime, parseManualRepairTimeCsv, removeManualRepairTime, saveManualRepairTime, saveManualRepairTimes } from "../../utils/repair-times";
 import { parseRepairSheet, parseRepairText } from "../../utils/repair-sheet";
 import { parseVehicleIdentification } from "../../utils/vehicle-sheet";
 import { mergeTorqueSpecs, parseTorqueText } from "../../utils/torques";
@@ -48,6 +48,20 @@ export default defineHandler(async event => {
       if (!result) fail(404, "That vehicle is not in this workshop");
       await transact(db => { logActivity(db, user, `Deleted manual repair time ${remove}`); return null; }, true);
       return result;
+    }
+
+    // A whole CSV of hand-entered times, whose first line names its columns.
+    const csv = typeof body.csv === "string" ? body.csv : "";
+    if (csv) {
+      const entries = parseManualRepairTimeCsv(csv);
+      const vehicle = await saveManualRepairTimes(vehicleId, entries);
+      if (!vehicle) fail(404, "That vehicle is not in this workshop");
+      await transact(db => {
+        const label = `${vehicle.make} ${vehicle.model}`.trim() || "a vehicle";
+        logActivity(db, user, `Added ${entries.length} manual repair time${entries.length === 1 ? "" : "s"} from CSV on ${label}`);
+        return null;
+      }, true);
+      return { vehicle, entries };
     }
 
     const entry = cleanManualRepairTime(body.entry);

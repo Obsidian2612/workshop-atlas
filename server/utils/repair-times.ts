@@ -274,23 +274,69 @@ export function cleanManualRepairTime(input: unknown): Omit<RepairTimeEntry, "so
   };
 }
 
+const manualCsvHeader = "operation,minutes,scope,captured at,notes,includes";
+
 /**
- * Add or replace a hand-entered repair time on one vehicle. `originalOperation`
- * renames an existing row instead of leaving the old name behind.
+ * Read hand-entered repair times from CSV. The first line must name the columns,
+ * so a file cannot be silently read with the wrong layout. The includes column is
+ * optional; steps in it are separated by ";" as "label | code | minutes".
  */
-export async function saveManualRepairTime(vehicleId: string, entry: Omit<RepairTimeEntry, "source">, originalOperation = "") {
+export function parseManualRepairTimeCsv(text: string) {
+  const rows = splitCsv(text).filter(cells => cells.some(cell => cell.trim() !== ""));
+  if (!rows.length) fail(400, `Paste CSV starting with a header line: ${manualCsvHeader}`);
+  const header = rows[0].map(cell => cell.trim().toLowerCase().replace(/\s+/g, ""));
+  if (!header.includes("operation") || !header.includes("minutes")) {
+    fail(400, `The first CSV line must name the columns and include operation and minutes, for example: ${manualCsvHeader}`);
+  }
+  const column = (cells: string[], name: string) => {
+    const at = header.indexOf(name);
+    return at < 0 ? "" : cells[at] ?? "";
+  };
+  const entries = rows.slice(1).flatMap(cells => {
+    const operation = column(cells, "operation").trim();
+    // A blank operation is a spacer row rather than an error.
+    if (!operation) return [];
+    const includes = column(cells, "includes").split(";").flatMap(part => {
+      const [label, scope, minutes] = part.split("|").map(piece => piece.trim());
+      return label ? [{ label, scope, minutes }] : [];
+    });
+    const capturedAt = column(cells, "capturedat") || column(cells, "captured") || column(cells, "date");
+    const minutes = column(cells, "minutes").trim();
+    if (minutes === "") fail(400, `Row "${operation}" has no minutes`);
+    return [cleanManualRepairTime({ operation, minutes, scope: column(cells, "scope"), capturedAt, notes: column(cells, "notes"), includes })];
+  });
+  if (!entries.length) fail(400, "No repair-time rows were found under the header line");
+  if (entries.length > 500) fail(400, "Add at most 500 repair times per CSV import");
+  return entries;
+}
+
+/** Write hand-entered rows into the vehicle in one transaction. */
+async function writeManualRepairTimes(vehicleId: string, entries: Omit<RepairTimeEntry, "source">[], originalOperation = "") {
   const now = new Date().toISOString();
   return transact(db => {
     const vehicle = db.vehicles.find(item => item.id === vehicleId);
     if (!vehicle) return null;
     const merged = new Map((vehicle.repairTimes || []).map(item => [item.operation.toLowerCase(), item]));
     if (originalOperation) merged.delete(originalOperation.toLowerCase());
-    merged.set(entry.operation.toLowerCase(), { ...entry, source: "manual" as const });
+    for (const entry of entries) merged.set(entry.operation.toLowerCase(), { ...entry, source: "manual" as const });
     vehicle.repairTimes = sortRepairTimes([...merged.values()]);
     vehicle.repairTimesSource = [...new Set(vehicle.repairTimes.map(item => item.source))].join(" + ");
     vehicle.repairTimesUpdatedAt = now;
     return vehicle;
   }, true);
+}
+
+/**
+ * Add or replace a hand-entered repair time on one vehicle. `originalOperation`
+ * renames an existing row instead of leaving the old name behind.
+ */
+export async function saveManualRepairTime(vehicleId: string, entry: Omit<RepairTimeEntry, "source">, originalOperation = "") {
+  return writeManualRepairTimes(vehicleId, [entry], originalOperation);
+}
+
+/** Add many hand-entered repair times at once, as read from CSV. */
+export async function saveManualRepairTimes(vehicleId: string, entries: Omit<RepairTimeEntry, "source">[]) {
+  return writeManualRepairTimes(vehicleId, entries);
 }
 
 /** Only a hand-entered row can be deleted here; imported and AI rows stay put. */

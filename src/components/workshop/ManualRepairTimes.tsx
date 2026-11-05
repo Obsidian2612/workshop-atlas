@@ -38,11 +38,38 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
   const [steps, setSteps] = useState<StepDraft[]>((entry?.includes || []).map(step => ({ label: step.label, scope: step.scope || "none", minutes: String(step.minutes) })));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [csv, setCsv] = useState("");
+  const [csvBusy, setCsvBusy] = useState(false);
+  const [csvError, setCsvError] = useState("");
+  // Other known times on this vehicle, offered as suggestions for step rows.
+  const knownTimes = (vehicle.repairTimes || []).filter(item => item.operation !== (entry?.operation || ""));
   const code = scope === "none" ? "" : scope;
   const includedMinutes = steps.reduce((sum, step) => sum + (Number(step.minutes) || 0), 0);
 
   function changeStep(index: number, patch: Partial<StepDraft>) {
     setSteps(current => current.map((step, at) => at === index ? { ...step, ...patch } : step));
+  }
+
+  // Choosing a known repair time fills in its code and time, unless already typed.
+  function changeStepLabel(index: number, label: string) {
+    const match = knownTimes.find(item => item.operation.toLowerCase() === label.trim().toLowerCase());
+    setSteps(current => current.map((step, at) => {
+      if (at !== index) return step;
+      if (!match) return { ...step, label };
+      return { ...step, label, scope: step.scope === "none" ? match.scope || "none" : step.scope, minutes: step.minutes || String(match.minutes) };
+    }));
+  }
+
+  async function importCsv() {
+    setCsvError("");
+    setCsvBusy(true);
+    try {
+      await api("repair-times", { action: "manual", vehicleId: vehicle.id, csv });
+      await refresh();
+      toast.success("Repair times added from CSV");
+      close();
+    } catch (e) { setCsvError((e as Error).message); }
+    finally { setCsvBusy(false); }
   }
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
@@ -129,13 +156,13 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-xs font-semibold">Steps this time includes</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">{steps.length ? `${steps.length} step${steps.length === 1 ? "" : "s"} · ${includedMinutes} min total` : "Optional. List the bundled operations and their own codes."}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">{steps.length ? `${steps.length} step${steps.length === 1 ? "" : "s"} · ${includedMinutes} min total` : "Optional. List the bundled operations and their own codes."}</p>{knownTimes.length > 0 && <p className="mt-1 text-[11px] text-muted-foreground">Start typing a step to pick one of this vehicle's {knownTimes.length} known repair times.</p>}
             </div>
-            <Button type="button" variant="outline" onClick={() => setSteps(current => [...current, { label: "", scope: "R&I", minutes: "" }])} className="h-9 rounded-lg text-xs"><Plus size={14} className="mr-1.5" />Add step</Button>
+            <Button type="button" variant="outline" onClick={() => setSteps(current => [...current, { label: "", scope: "none", minutes: "" }])} className="h-9 rounded-lg text-xs"><Plus size={14} className="mr-1.5" />Add step</Button>
           </div>
 
           {steps.length > 0 && <div className="mt-3 space-y-2">{steps.map((step, index) => <div key={index} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_5.5rem_2.5rem]">
-            <Input aria-label={`Step ${index + 1} description`} value={step.label} onChange={event => changeStep(index, { label: event.target.value })} placeholder="e.g. Camshaft/valve cover & gasket" maxLength={200} className="h-10 rounded-lg border-border bg-white text-xs" />
+            <Input aria-label={`Step ${index + 1} description`} list="known-repair-times" value={step.label} onChange={event => changeStepLabel(index, event.target.value)} placeholder="e.g. Camshaft/valve cover & gasket" maxLength={200} className="h-10 rounded-lg border-border bg-white text-xs" />
             <Pick label={`Step ${index + 1} code`} value={step.scope} onChange={value => changeStep(index, { scope: value })} options={scopeOptions} />
             <Input aria-label={`Step ${index + 1} minutes`} type="number" min="0" max="1440" step="1" value={step.minutes} onChange={event => changeStep(index, { minutes: event.target.value })} placeholder="min" className="h-10 rounded-lg border-border bg-white text-xs" />
             <Button type="button" aria-label={`Remove step ${index + 1}`} variant="ghost" size="icon" onClick={() => setSteps(current => current.filter((_, at) => at !== index))} className="h-10 w-10 rounded-lg text-destructive"><Trash2 size={14} /></Button>
@@ -145,6 +172,19 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
         <div>
           <Label htmlFor="notes" className="text-xs font-semibold">Notes</Label>
           <Textarea id="notes" value={notes} onChange={event => setNotes(event.target.value)} maxLength={500} placeholder="Where the time came from, what it assumes, anything the next reader needs." className="mt-2 min-h-24 rounded-xl border-border bg-white text-sm leading-6" />
+        </div>
+
+        <datalist id="known-repair-times">{knownTimes.map(item => <option key={item.operation} value={item.operation}>{`${item.minutes} min${item.scope ? ` · ${item.scope}` : ""}`}</option>)}</datalist>
+
+        <div className="rounded-xl border border-dashed border-border p-4">
+          <p className="text-xs font-semibold">Add several times from CSV</p>
+          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">The first line must say how the file is laid out. It needs operation and minutes; scope, captured at, notes and includes are optional. Separate bundled steps in includes with a semicolon, written as label | code | minutes.</p>
+          <Textarea aria-label="Repair times as CSV" value={csv} onChange={event => setCsv(event.target.value)} placeholder={"operation,minutes,scope,captured at,notes,includes\nReplace camshaft drive belt,180,R&I,2026-11-03,From the workshop sheet,Valve timing|C&A|40; Coolant/antifreeze|D&R|20\nOil and filter change,45,S&R,,"} className="mt-3 min-h-28 rounded-lg border-border bg-white font-mono text-[11px] leading-5" />
+          {csvError && <p role="alert" className="mt-2 rounded-lg bg-destructive/5 p-2 text-xs text-destructive">{csvError}</p>}
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <p className="text-[11px] text-muted-foreground">Each row is saved as your own hand-entered time.</p>
+            <Button type="button" variant="outline" disabled={csvBusy || !csv.trim()} onClick={importCsv} className="h-9 rounded-lg px-4 text-xs">{csvBusy && <Loader2 size={14} className="mr-1.5 animate-spin" />}Add CSV rows</Button>
+          </div>
         </div>
 
         {error && <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
