@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS vehicles (
   id TEXT PRIMARY KEY, make TEXT NOT NULL, model TEXT NOT NULL, year TEXT NOT NULL, engine TEXT NOT NULL,
   engine_model TEXT NOT NULL DEFAULT '', engine_number TEXT NOT NULL DEFAULT '',
+  licence_number TEXT NOT NULL DEFAULT '', colour TEXT NOT NULL DEFAULT '', expiry TEXT NOT NULL DEFAULT '',
   registration TEXT NOT NULL, vin TEXT NOT NULL, customer TEXT NOT NULL, specifications TEXT NOT NULL,
   repair_times TEXT, repair_times_source TEXT, repair_times_updated_at TEXT,
   torque_specs TEXT, torque_specs_updated_at TEXT,
@@ -110,6 +111,9 @@ function database(): DatabaseSync {
   ensureColumn(db, "vehicles", "torque_specs_updated_at", "TEXT");
   ensureColumn(db, "vehicles", "engine_model", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "vehicles", "engine_number", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "vehicles", "licence_number", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "vehicles", "colour", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "vehicles", "expiry", "TEXT NOT NULL DEFAULT ''");
   chmodSync(databaseFile, 0o600);
   importLegacyStore(db);
   connection = db;
@@ -147,7 +151,8 @@ function importLegacyStore(db: DatabaseSync) {
   const imported: Store = {
     ...emptyStore(), ...parsed,
     users: parsed.users, sessions: parsed.sessions || [],
-    vehicles: parsed.vehicles.map(vehicle => ({ ...vehicle, engineModel: vehicle.engineModel ?? "", engineNumber: vehicle.engineNumber ?? "" })),
+    vehicles: parsed.vehicles.map(vehicle => ({ ...vehicle, engineModel: vehicle.engineModel ?? "", engineNumber: vehicle.engineNumber ?? "",
+      licenceNumber: vehicle.licenceNumber ?? "", colour: vehicle.colour ?? "", expiry: vehicle.expiry ?? "" })),
     records: (parsed.records || []).map(record => ({ ...record, repairTimeMinutes: Number(record.repairTimeMinutes) || 0 })),
     attachments: parsed.attachments || [], activity: parsed.activity || [],
     repairTimesByVin: parsed.repairTimesByVin || {},
@@ -187,6 +192,7 @@ function readStore(db: DatabaseSync): Store {
     const vehicle: Vehicle = {
       id: String(row.id), make: String(row.make), model: String(row.model), year: String(row.year),
       engine: String(row.engine), engineModel: String(row.engine_model ?? ""), engineNumber: String(row.engine_number ?? ""),
+      licenceNumber: String(row.licence_number ?? ""), colour: String(row.colour ?? ""), expiry: String(row.expiry ?? ""),
       registration: String(row.registration), vin: String(row.vin),
       customer: String(row.customer), specifications: String(row.specifications),
       createdAt: String(row.created_at), updatedAt: String(row.updated_at), createdBy: String(row.created_by),
@@ -276,18 +282,20 @@ function writeSessions(db: DatabaseSync, before: Store, after: Store) {
 }
 
 const vehicleKey = (vehicle: Vehicle) => JSON.stringify([vehicle.make, vehicle.model, vehicle.year, vehicle.engine,
-  vehicle.engineModel, vehicle.engineNumber, vehicle.registration, vehicle.vin, vehicle.customer, vehicle.specifications,
+  vehicle.engineModel, vehicle.engineNumber, vehicle.licenceNumber, vehicle.colour, vehicle.expiry,
+  vehicle.registration, vehicle.vin, vehicle.customer, vehicle.specifications,
   vehicle.repairTimes ?? null, vehicle.repairTimesSource ?? null,
   vehicle.repairTimesUpdatedAt ?? null, vehicle.torqueSpecs ?? null, vehicle.torqueSpecsUpdatedAt ?? null,
   vehicle.createdAt, vehicle.updatedAt, vehicle.createdBy]);
 
 function writeVehicles(db: DatabaseSync, before: Store, after: Store) {
   removeMissing(db, "vehicles", before.vehicles, after.vehicles);
-  const upsert = db.prepare(`INSERT INTO vehicles (id, make, model, year, engine, engine_model, engine_number, registration, vin, customer, specifications,
+  const upsert = db.prepare(`INSERT INTO vehicles (id, make, model, year, engine, engine_model, engine_number, licence_number, colour, expiry, registration, vin, customer, specifications,
       repair_times, repair_times_source, repair_times_updated_at, torque_specs, torque_specs_updated_at, created_at, updated_at, created_by, sort)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET make = excluded.make, model = excluded.model, year = excluded.year, engine = excluded.engine,
       engine_model = excluded.engine_model, engine_number = excluded.engine_number,
+      licence_number = excluded.licence_number, colour = excluded.colour, expiry = excluded.expiry,
       registration = excluded.registration, vin = excluded.vin, customer = excluded.customer, specifications = excluded.specifications,
       repair_times = excluded.repair_times, repair_times_source = excluded.repair_times_source,
       repair_times_updated_at = excluded.repair_times_updated_at, torque_specs = excluded.torque_specs,
@@ -302,7 +310,7 @@ function writeVehicles(db: DatabaseSync, before: Store, after: Store) {
     const sort = nextSort.get(vehicle.id) ?? 0;
     if (!previous || vehicleKey(previous) !== vehicleKey(vehicle)) {
       upsert.run(vehicle.id, vehicle.make, vehicle.model, vehicle.year, vehicle.engine, vehicle.engineModel, vehicle.engineNumber,
-        vehicle.registration, vehicle.vin, vehicle.customer, vehicle.specifications, vehicle.repairTimes ? JSON.stringify(vehicle.repairTimes) : null,
+        vehicle.licenceNumber, vehicle.colour, vehicle.expiry, vehicle.registration, vehicle.vin, vehicle.customer, vehicle.specifications, vehicle.repairTimes ? JSON.stringify(vehicle.repairTimes) : null,
         vehicle.repairTimesSource ?? null, vehicle.repairTimesUpdatedAt ?? null,
         vehicle.torqueSpecs ? JSON.stringify(vehicle.torqueSpecs) : null, vehicle.torqueSpecsUpdatedAt ?? null,
         vehicle.createdAt, vehicle.updatedAt, vehicle.createdBy, sort);

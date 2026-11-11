@@ -47,6 +47,8 @@ export interface Vehicle {
   id: string; make: string; model: string; year: string; engine: string;
   engineModel: string; engineNumber: string;
   registration: string; vin: string; customer: string; specifications: string;
+  /** Read off the licence disk: the disk's own number, the colour and when it expires. */
+  licenceNumber: string; colour: string; expiry: string;
   repairTimes?: RepairTimeEntry[]; repairTimesSource?: string; repairTimesUpdatedAt?: string;
   torqueSpecs?: TorqueSpec[]; torqueSpecsUpdatedAt?: string;
   createdAt: string; updatedAt: string; createdBy: string;

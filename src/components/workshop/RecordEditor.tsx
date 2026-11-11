@@ -81,6 +81,7 @@ function VehicleFields({ value }: { value?: Vehicle }) {
     make: value?.make || "", model: value?.model || "", year: value?.year || "",
     engine: value?.engine || "", engineModel: value?.engineModel || "", engineNumber: value?.engineNumber || "",
     vin: value?.vin || "", registration: value?.registration || "",
+    licenceNumber: value?.licenceNumber || "", colour: value?.colour || "", expiry: value?.expiry || "",
   });
   const [vinBusy, setVinBusy] = useState(false);
   const [vinNote, setVinNote] = useState("");
@@ -122,6 +123,9 @@ function VehicleFields({ value }: { value?: Vehicle }) {
       ["vin", details.vin, "VIN"],
       ["engineNumber", details.engineNumber, "engine number"],
       ["registration", details.registration, "registration"],
+      ["licenceNumber", details.licenceNumber, "licence number"],
+      ["colour", details.colour, "colour"],
+      ["expiry", details.expiry, "licence expiry"],
       ["make", details.make, "make"],
       ["model", details.model, "model"],
     ];
@@ -131,15 +135,10 @@ function VehicleFields({ value }: { value?: Vehicle }) {
       filled.push(label);
     }
     setFields(next);
-    const extras = [
-      details.licenceNumber && `licence number ${details.licenceNumber}`,
-      details.colour && `colour ${details.colour}`,
-      details.expiry && `expiry date ${details.expiry}`,
-    ].filter(Boolean).join(", ");
     const filledNote = filled.length
       ? `Filled ${filled.join(", ")} from the licence disk.`
       : "Every detail the disk held was already filled in, so your values were left alone.";
-    setVinNote(`${filledNote}${extras ? ` The disk also reads ${extras}, which this form has no field for.` : ""} Check the values before saving.`);
+    setVinNote(`${filledNote} Check the values before saving.`);
   }
 
   return <><div className="grid gap-4 sm:grid-cols-2">
@@ -150,6 +149,9 @@ function VehicleFields({ value }: { value?: Vehicle }) {
     <Field label="Engine model" name="engineModel" value={fields.engineModel} onChange={change("engineModel")} placeholder="e.g. CWVA, K20C" maxLength={100} />
     <Field label="Engine number" name="engineNumber" value={fields.engineNumber} onChange={change("engineNumber")} placeholder="Stamped engine number" maxLength={60} />
     <Field label="Registration" name="registration" value={fields.registration} onChange={change("registration")} placeholder="Registration number" maxLength={30} />
+    <Field label="Licence number" name="licenceNumber" value={fields.licenceNumber} onChange={change("licenceNumber")} placeholder="Number printed on the disk" maxLength={60} />
+    <Field label="Colour" name="colour" value={fields.colour} onChange={change("colour")} placeholder="e.g. White" maxLength={40} />
+    <Field label="Licence expiry" name="expiry" value={fields.expiry} onChange={change("expiry")} placeholder="e.g. 2027-03-31" maxLength={20} />
     <div>
       <Label htmlFor="vin" className="text-xs font-semibold">VIN</Label>
       <Input id="vin" name="vin" value={fields.vin} onChange={change("vin")} placeholder="Vehicle identification number" maxLength={30} className="mt-2 h-11 rounded-lg border-border bg-white font-mono text-sm" />

@@ -49,6 +49,7 @@ export default defineHandler(async event => {
       const vehicle = { ...common, make: text(body.make, "Make", 80, true), model: text(body.model, "Model", 100, true), year,
         engine: text(body.engine, "Engine", 100), engineModel: text(body.engineModel, "Engine model", 100),
         engineNumber: text(body.engineNumber, "Engine number", 60),
+        licenceNumber: text(body.licenceNumber, "Licence number", 60), colour: text(body.colour, "Colour", 40), expiry: text(body.expiry, "Licence expiry", 20),
         registration: text(body.registration, "Registration", 30), vin: text(body.vin, "VIN", 30),
         customer: text(body.customer, "Customer", 200), specifications: text(body.specifications, "Specifications", 20000) };
       const vin = vehicle.vin ? vehicle.vin.toUpperCase() : "";
