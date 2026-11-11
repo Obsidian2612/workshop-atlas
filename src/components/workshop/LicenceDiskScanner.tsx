@@ -9,8 +9,10 @@ import { parseLicenceDisk, licenceDiskHasDetails, type LicenceDiskDetails } from
 type CropRect = { left: number; top: number; width: number; height: number };
 type Corner = "nw" | "ne" | "sw" | "se" | "move";
 
-// A licence-disk PDF417 is a wide block of bars, so the fallback frame is wide
-// too; when the photo allows it, suggestCrop() places the box on the bars.
+// Crop rectangles are kept in *image* fractions, never in preview pixels, so the
+// frame stays on the same part of the photo when the panel is resized.
+// A licence-disk PDF417 is a wide block of bars, so the fallback is wide too;
+// when the photo allows it, suggestCrop() places the box on the bars.
 const DEFAULT_CROP: CropRect = { left: 0.1, top: 0.33, width: 0.8, height: 0.34 };
 
 // A photo of a licence disk is never crisp enough for one fixed sample, so the
@@ -330,6 +332,7 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [autoFramed, setAutoFramed] = useState(false);
   const [hintVisible, setHintVisible] = useState(false);
+  const [boxSize, setBoxSize] = useState({ w: 360, h: 270 });
   const fileRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -341,14 +344,36 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
   useEffect(() => {
     function onMove(e: PointerEvent) {
       const d = drag.current;
-      if (!d || !boxRef.current) return;
-      setCrop(prev => applyDrag(prev, d.corner, e.clientX - d.startX, e.clientY - d.startY, boxRef.current!.clientWidth, boxRef.current!.clientHeight));
+      const box = boxRef.current;
+      const imgEl = imgRef.current;
+      if (!d || !box || !imgEl) return;
+      // Pointer travel is in preview pixels; the crop is in image fractions, so
+      // scale by the photo's rendered size rather than the box's.
+      const fit = Math.min(box.clientWidth / imgEl.naturalWidth, box.clientHeight / imgEl.naturalHeight);
+      setCrop(prev => applyDrag(prev, d.corner, e.clientX - d.startX, e.clientY - d.startY, fit * imgEl.naturalWidth, fit * imgEl.naturalHeight));
     }
     function onUp() { drag.current = null; }
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     return () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
   }, []);
+
+  // Track the preview's size so the overlay can be re-projected whenever the
+  // panel changes width; the frame is derived from image fractions, so it lands
+  // back on the barcode without re-detecting it.
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box || !image) return;
+    const measure = () => setBoxSize({ w: box.clientWidth, h: box.clientHeight });
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [image]);
 
   async function loadImage(file: File) {
     setLoading(true); setError("");
@@ -364,15 +389,11 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
       const size = { w: img.naturalWidth, h: img.naturalHeight };
       setDims(size);
       setImage(file);
-      const boxW = boxRef.current?.clientWidth ?? 360;
+      // The suggestion is already in image fractions, so reloading the photo or
+      // resizing the panel keeps the frame snapped to the same bars.
       const suggestion = suggestCrop(img);
-      if (suggestion) {
-        setCrop(clampCrop(imageRectToBox(size, boxW, boxW * 0.75, suggestion)));
-        setAutoFramed(true);
-      } else {
-        setCrop(DEFAULT_CROP);
-        setAutoFramed(false);
-      }
+      setCrop(clampCrop(suggestion ?? DEFAULT_CROP));
+      setAutoFramed(!!suggestion);
       setHintVisible(true);
     } catch (loadError) {
       setError((loadError as Error).message || "That file could not be opened as an image.");
@@ -383,19 +404,13 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
   }
 
   async function readCrop() {
-    const box = boxRef.current;
     const imgEl = imgRef.current;
-    if (!box || !imgEl || !dims) return;
-    const boxW = box.clientWidth, boxH = box.clientHeight;
-    // The preview letterboxes the photo (object-contain), so map the crop from
-    // preview space back into source pixels through that same fit scale.
-    const fit = Math.min(boxW / dims.w, boxH / dims.h);
-    const offsetX = (boxW - fit * dims.w) / 2;
-    const offsetY = (boxH - fit * dims.h) / 2;
-    let sx = (crop.left * boxW - offsetX) / fit;
-    let sy = (crop.top * boxH - offsetY) / fit;
-    let sw = (crop.width * boxW) / fit;
-    let sh = (crop.height * boxH) / fit;
+    if (!imgEl || !dims) return;
+    // The crop is in image fractions, so no preview geometry is involved.
+    let sx = crop.left * dims.w;
+    let sy = crop.top * dims.h;
+    let sw = crop.width * dims.w;
+    let sh = crop.height * dims.h;
     sx = Math.max(0, Math.min(dims.w - 1, sx));
     sy = Math.max(0, Math.min(dims.h - 1, sy));
     sw = Math.min(dims.w - sx, sw);
@@ -446,13 +461,18 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
     );
   }
 
-  const boxW = boxRef.current?.clientWidth ?? 360;
-  const boxH = boxRef.current?.clientHeight ?? 270;
+  const boxW = boxSize.w;
+  const boxH = boxSize.h;
+  // Project the image-space frame into the letterboxed preview. Recomputed on
+  // every render, so a resize moves the box with the photo instead of off it.
+  const preview = clampCrop(
+    dims ? imageRectToBox(dims, boxW, boxH, crop) : { left: crop.left, top: crop.top, width: crop.width, height: crop.height },
+  );
   const cropPx = {
-    left: crop.left * boxW,
-    top: crop.top * boxH,
-    width: crop.width * boxW,
-    height: crop.height * boxH,
+    left: preview.left * boxW,
+    top: preview.top * boxH,
+    width: preview.width * boxW,
+    height: preview.height * boxH,
   };
 
   return (
@@ -472,7 +492,7 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
         <div className="pointer-events-none absolute inset-0" style={{ boxShadow: "inset 0 0 0 9999px rgba(0,0,0,0.62)" }} />
         <div
           className="crop-body absolute rounded-sm border-2 border-solid border-white/80 shadow-sm"
-          style={{ left: `${crop.left * 100}%`, top: `${crop.top * 100}%`, width: `${crop.width * 100}%`, height: `${crop.height * 100}%` }}
+          style={{ left: `${preview.left * 100}%`, top: `${preview.top * 100}%`, width: `${preview.width * 100}%`, height: `${preview.height * 100}%` }}
           onPointerDown={e => pointerDown(e, "move")}
           role="button"
           aria-label="Drag to move the crop"
