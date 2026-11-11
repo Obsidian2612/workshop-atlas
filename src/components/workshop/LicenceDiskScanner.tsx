@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import { BarcodeFormat } from "@zxing/library";
-import { Camera, ImageUp, Loader2 } from "lucide-react";
+import { Camera, ImageUp, Loader2, Move } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { parseLicenceDisk, licenceDiskHasDetails, type LicenceDiskDetails } from "@/lib/licence-disk";
@@ -9,7 +9,9 @@ import { parseLicenceDisk, licenceDiskHasDetails, type LicenceDiskDetails } from
 type CropRect = { left: number; top: number; width: number; height: number };
 type Corner = "nw" | "ne" | "sw" | "se" | "move";
 
-const DEFAULT_CROP: CropRect = { left: 0.15, top: 0.18, width: 0.7, height: 0.64 };
+// A licence-disk PDF417 is a wide block of bars, so the fallback frame is wide
+// too; when the photo allows it, suggestCrop() places the box on the bars.
+const DEFAULT_CROP: CropRect = { left: 0.1, top: 0.33, width: 0.8, height: 0.34 };
 
 // A photo of a licence disk is never crisp enough for one fixed sample, so the
 // decoder tries a few render scales and a couple of binarisation thresholds
@@ -33,6 +35,134 @@ function applyDrag(prev: CropRect, corner: Corner, dx: number, dy: number, boxW:
     if (corner.includes("s")) { b += dy * uy; if (b < t + 0.04) b = t + 0.04; }
   }
   return { left: clamp01(l), top: clamp01(t), width: clamp01(r - l), height: clamp01(b - t) };
+}
+
+function clampCrop(rect: CropRect): CropRect {
+  const left = clamp01(rect.left);
+  const top = clamp01(rect.top);
+  return {
+    left,
+    top,
+    width: Math.max(0.04, Math.min(clamp01(rect.width), 1 - left)),
+    height: Math.max(0.04, Math.min(clamp01(rect.height), 1 - top)),
+  };
+}
+
+function densityProfile(dark: Uint8Array, w: number, h: number, axis: "rows" | "cols", fromY = 0, toY = h): Float32Array {
+  if (axis === "rows") {
+    const out = new Float32Array(h);
+    for (let y = 0; y < h; y++) {
+      let count = 0;
+      for (let x = 0; x < w; x++) count += dark[y * w + x];
+      out[y] = count / Math.max(1, w);
+    }
+    return out;
+  }
+  const out = new Float32Array(w);
+  const span = Math.max(1, toY - fromY);
+  for (let x = 0; x < w; x++) {
+    let count = 0;
+    for (let y = fromY; y < toY; y++) count += dark[y * w + x];
+    out[x] = count / span;
+  }
+  return out;
+}
+
+function longestBand(profile: Float32Array, cut: number): { start: number; end: number } | null {
+  let best: { start: number; end: number } | null = null;
+  let start = -1;
+  for (let i = 0; i < profile.length; i++) {
+    if (profile[i] >= cut) {
+      if (start < 0) start = i;
+    } else if (start >= 0) {
+      if (!best || i - start > best.end - best.start) best = { start, end: i };
+      start = -1;
+    }
+  }
+  if (start >= 0 && (!best || profile.length - start > best.end - best.start)) best = { start, end: profile.length };
+  return best;
+}
+
+// Columns of bars have white gaps, so a plain run test fragments: take the
+// widest cluster instead, bridging gaps no wider than maxGap.
+function clusterSpan(profile: Float32Array, cut: number, maxGap: number): { start: number; end: number } | null {
+  let best: { start: number; end: number } | null = null;
+  let start = -1, last = -1;
+  for (let i = 0; i < profile.length; i++) {
+    if (profile[i] > cut) {
+      if (start < 0) start = i;
+      else if (i - last > maxGap) {
+        if (!best || last + 1 - start > best.end - best.start) best = { start, end: last + 1 };
+        start = i;
+      }
+      last = i;
+    }
+  }
+  if (start >= 0 && (!best || last + 1 - start > best.end - best.start)) best = { start, end: last + 1 };
+  return best;
+}
+
+// Finds the densest block of dark bars in the photo and returns it in image
+// fractions. Best effort only: null means "keep the default frame".
+function suggestCrop(img: HTMLImageElement): CropRect | null {
+  const W = img.naturalWidth, H = img.naturalHeight;
+  if (!W || !H) return null;
+  const scale = Math.min(1, 180 / Math.max(W, H));
+  const w = Math.max(8, Math.round(W * scale));
+  const h = Math.max(8, Math.round(H * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+  let pixels: Uint8ClampedArray;
+  try {
+    pixels = ctx.getImageData(0, 0, w, h).data;
+  } catch {
+    return null;
+  }
+  const dark = new Uint8Array(w * h);
+  for (let i = 0, p = 0; i < dark.length; i++, p += 4) {
+    dark[i] = pixels[p] * 0.299 + pixels[p + 1] * 0.587 + pixels[p + 2] * 0.114 < 128 ? 1 : 0;
+  }
+  // Rows of a PDF417 are dense bands of bars, so cut relative to the busiest row.
+  const rowProfile = densityProfile(dark, w, h, "rows");
+  let rowPeak = 0;
+  for (const value of rowProfile) if (value > rowPeak) rowPeak = value;
+  if (rowPeak <= 0) return null;
+  const rows = longestBand(rowProfile, rowPeak * 0.55);
+  if (!rows) return null;
+  // Columns are bars with white gaps, so a column inside the symbol can be
+  // almost empty: ask only that it holds some bars, within the row band.
+  const colProfile = densityProfile(dark, w, h, "cols", rows.start, rows.end);
+  const cols = clusterSpan(colProfile, 0.02, Math.max(3, Math.round(w * 0.06)));
+  if (!cols) return null;
+  const width = (cols.end - cols.start) / w;
+  const height = (rows.end - rows.start) / h;
+  if (width < 0.15 || height < 0.04) return null;
+  const pad = 0.02;
+  const left = Math.max(0, cols.start / w - pad);
+  const top = Math.max(0, rows.start / h - pad);
+  const right = Math.min(1, cols.end / w + pad);
+  const bottom = Math.min(1, rows.end / h + pad);
+  return { left, top, width: Math.max(0.05, right - left), height: Math.max(0.03, bottom - top) };
+}
+
+// The crop lives in preview-box fractions, and the photo is letterboxed inside
+// that box, so an image-space rectangle has to be mapped through the same fit.
+function imageRectToBox(size: { w: number; h: number }, boxW: number, boxH: number, rect: CropRect): CropRect {
+  const fit = Math.min(boxW / size.w, boxH / size.h);
+  const offsetX = (boxW - fit * size.w) / 2;
+  const offsetY = (boxH - fit * size.h) / 2;
+  return {
+    left: (offsetX + rect.left * fit * size.w) / boxW,
+    top: (offsetY + rect.top * fit * size.h) / boxH,
+    width: (rect.width * fit * size.w) / boxW,
+    height: (rect.height * fit * size.h) / boxH,
+  };
 }
 
 function makeCanvas(
@@ -198,6 +328,8 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
   const [error, setError] = useState("");
   const [crop, setCrop] = useState<CropRect>(DEFAULT_CROP);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
+  const [autoFramed, setAutoFramed] = useState(false);
+  const [hintVisible, setHintVisible] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -229,9 +361,19 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
         img.src = url;
       });
       imgRef.current = img;
-      setDims({ w: img.naturalWidth, h: img.naturalHeight });
+      const size = { w: img.naturalWidth, h: img.naturalHeight };
+      setDims(size);
       setImage(file);
-      setCrop(DEFAULT_CROP);
+      const boxW = boxRef.current?.clientWidth ?? 360;
+      const suggestion = suggestCrop(img);
+      if (suggestion) {
+        setCrop(clampCrop(imageRectToBox(size, boxW, boxW * 0.75, suggestion)));
+        setAutoFramed(true);
+      } else {
+        setCrop(DEFAULT_CROP);
+        setAutoFramed(false);
+      }
+      setHintVisible(true);
     } catch (loadError) {
       setError((loadError as Error).message || "That file could not be opened as an image.");
     } finally {
@@ -285,6 +427,7 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
 
   function pointerDown(e: React.PointerEvent, corner: Corner) {
     e.preventDefault();
+    setHintVisible(false);
     if (!boxRef.current) return;
     drag.current = { corner, startX: e.clientX, startY: e.clientY, orig: crop };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -314,6 +457,16 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
 
   return (
     <div className="mt-3 space-y-2">
+      {hintVisible && (
+        <div className="flex items-start gap-2 rounded-lg bg-primary/5 p-2.5 text-xs leading-5" role="status">
+          <Move size={14} className="mt-0.5 shrink-0 text-primary" />
+          <span>
+            {autoFramed
+              ? "We framed the barcode for you. Drag the box to move it, or pull a corner to tighten it around the bars, then press Read barcode."
+              : "Drag the box over the block of bars on the licence disk, pull a corner to tighten it, then press Read barcode."}
+          </span>
+        </div>
+      )}
       <div ref={boxRef} className="relative overflow-hidden rounded-xl bg-black" style={{ width: boxW, aspectRatio: "4/3" }}>
         <img src={previewUrl} className="h-full w-full object-contain" alt="Licence disk" />
         <div className="pointer-events-none absolute inset-0" style={{ boxShadow: "inset 0 0 0 9999px rgba(0,0,0,0.62)" }} />
