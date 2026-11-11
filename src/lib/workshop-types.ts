@@ -51,6 +51,15 @@ export interface Vehicle {
   torqueSpecs?: TorqueSpec[]; torqueSpecsUpdatedAt?: string;
   createdAt: string; updatedAt: string; createdBy: string;
 }
+/** Details the vehicle editor can offer from a VIN; none of them are saved until the reader does. */
+export type VinDetailField = "make" | "model" | "year" | "engine" | "engineModel";
+export interface VinLookupResult {
+  vin: string;
+  fields: Partial<Record<VinDetailField, string>>;
+  decoded: VinDetailField[];
+  suggested: VinDetailField[];
+  warnings: string[];
+}
 export interface WorkshopRecord {
   id: string; kind: RecordKind; title: string; vehicleId: string; category: string;
   content: string; date: string; mileage: string; repairTimeMinutes: number; createdAt: string; updatedAt: string; createdBy: string;

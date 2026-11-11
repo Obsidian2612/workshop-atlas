@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { Loader2, CarFront, BookOpen, StickyNote, History } from "lucide-react";
+import { Loader2, CarFront, BookOpen, StickyNote, History, Sparkles } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/workshop-api";
-import type { RecordKind, RepairTimeEntry, Vehicle, WorkshopRecord, Workspace } from "@/lib/workshop-types";
+import type { RecordKind, RepairTimeEntry, Vehicle, VinLookupResult, WorkshopRecord, Workspace } from "@/lib/workshop-types";
 import { Pick } from "./primitives";
 import { toast } from "sonner";export type EditorTarget = { entity: "vehicle"; value?: Vehicle } | { entity: "record"; kind: RecordKind; value?: WorkshopRecord; vehicleId?: string };
 export default function RecordEditor({ target, close, data, refresh }: { target: EditorTarget; close: () => void; data: Workspace; refresh: () => Promise<void> }) {
@@ -70,8 +70,63 @@ function formatTotal(minutes: string) {
   return total >= 60 ? `${Math.floor(total / 60)} h${total % 60 ? ` ${total % 60} min` : ""}` : `${total} min`;
 }
 
+const vinLabels: Record<string, string> = { make: "make", model: "model", year: "year", engine: "engine / variant", engineModel: "engine model" };
+
 function VehicleFields({ value }: { value?: Vehicle }) {
-  return <><div className="grid gap-4 sm:grid-cols-2"><Field label="Make" name="make" required defaultValue={value?.make} placeholder="e.g. Volkswagen" maxLength={80} /><Field label="Model" name="model" required defaultValue={value?.model} placeholder="e.g. Golf" maxLength={100} /><Field label="Year" name="year" inputMode="numeric" pattern="[0-9]{4}" defaultValue={value?.year} placeholder="e.g. 2018" maxLength={4} /><Field label="Engine / variant" name="engine" defaultValue={value?.engine} placeholder="e.g. 1.6 TDI" maxLength={100} /><Field label="Engine model" name="engineModel" defaultValue={value?.engineModel} placeholder="e.g. CWVA, K20C" maxLength={100} /><Field label="Engine number" name="engineNumber" defaultValue={value?.engineNumber} placeholder="Stamped engine number" maxLength={60} /><Field label="Registration" name="registration" defaultValue={value?.registration} placeholder="Registration number" maxLength={30} /><Field label="VIN" name="vin" defaultValue={value?.vin} placeholder="Vehicle identification number" maxLength={30} /></div><Field label="Customer / owner" name="customer" defaultValue={value?.customer} placeholder="Customer or fleet name (optional)" maxLength={200} /><div><Label htmlFor="specifications" className="text-xs font-semibold">Specifications and vehicle notes</Label><Textarea id="specifications" name="specifications" defaultValue={value?.specifications} maxLength={20000} placeholder="Add your verified specifications, fluid information or vehicle notes…" className="mt-2 min-h-32 rounded-xl border-border bg-white text-sm leading-6" /></div></>;
+  // These six fields are controlled so a VIN lookup can fill the empty ones
+  // without touching anything the reader already typed.
+  const [fields, setFields] = useState({
+    make: value?.make || "", model: value?.model || "", year: value?.year || "",
+    engine: value?.engine || "", engineModel: value?.engineModel || "", engineNumber: value?.engineNumber || "",
+    vin: value?.vin || "",
+  });
+  const [vinBusy, setVinBusy] = useState(false);
+  const [vinNote, setVinNote] = useState("");
+  const [vinError, setVinError] = useState("");
+  const change = (field: keyof typeof fields) => (event: React.ChangeEvent<HTMLInputElement>) =>
+    setFields(current => ({ ...current, [field]: event.target.value }));
+  const vinLength = fields.vin.replace(/[\s-]+/g, "").length;
+
+  async function suggestFromVin() {
+    setVinBusy(true); setVinError(""); setVinNote("");
+    try {
+      const result = await api<VinLookupResult>("vin-lookup", { vin: fields.vin });
+      const next = { ...fields };
+      const filled: string[] = [];
+      for (const [key, text] of Object.entries(result.fields)) {
+        if (!text || !(key in next)) continue;
+        const field = key as keyof typeof fields;
+        if (next[field].trim()) continue;
+        next[field] = text;
+        filled.push(vinLabels[key] || key);
+      }
+      setFields(next);
+      const caveats = result.warnings.length ? ` ${result.warnings.join(" ")}` : "";
+      setVinNote(filled.length
+        ? `Filled ${filled.join(", ")} from the VIN. Check them against the vehicle before saving.${caveats}`
+        : `Nothing this VIN could confirm was missing, so your values were left alone.${caveats}`);
+    } catch (error) { setVinError((error as Error).message); }
+    finally { setVinBusy(false); }
+  }
+
+  return <><div className="grid gap-4 sm:grid-cols-2">
+    <Field label="Make" name="make" required value={fields.make} onChange={change("make")} placeholder="e.g. Volkswagen" maxLength={80} />
+    <Field label="Model" name="model" required value={fields.model} onChange={change("model")} placeholder="e.g. Golf" maxLength={100} />
+    <Field label="Year" name="year" inputMode="numeric" pattern="[0-9]{4}" value={fields.year} onChange={change("year")} placeholder="e.g. 2018" maxLength={4} />
+    <Field label="Engine / variant" name="engine" value={fields.engine} onChange={change("engine")} placeholder="e.g. 1.6 TDI" maxLength={100} />
+    <Field label="Engine model" name="engineModel" value={fields.engineModel} onChange={change("engineModel")} placeholder="e.g. CWVA, K20C" maxLength={100} />
+    <Field label="Engine number" name="engineNumber" value={fields.engineNumber} onChange={change("engineNumber")} placeholder="Stamped engine number" maxLength={60} />
+    <Field label="Registration" name="registration" defaultValue={value?.registration} placeholder="Registration number" maxLength={30} />
+    <div>
+      <Label htmlFor="vin" className="text-xs font-semibold">VIN</Label>
+      <Input id="vin" name="vin" value={fields.vin} onChange={change("vin")} placeholder="Vehicle identification number" maxLength={30} className="mt-2 h-11 rounded-lg border-border bg-white font-mono text-sm" />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button type="button" variant="outline" size="sm" disabled={vinBusy || vinLength < 11} onClick={suggestFromVin} className="h-8 rounded-lg px-3 text-[11px] font-semibold">{vinBusy ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Sparkles size={13} className="mr-1.5" />}{vinBusy ? "Reading VIN…" : "Suggest missing details"}</Button>
+        <span className="text-[10px] text-muted-foreground">Fills only empty fields</span>
+      </div>
+      {(vinError || vinNote) && <p role={vinError ? "alert" : undefined} className={vinError ? "mt-2 text-[11px] leading-5 text-destructive" : "mt-2 text-[11px] leading-5 text-primary"}>{vinError || vinNote}</p>}
+    </div>
+  </div><Field label="Customer / owner" name="customer" defaultValue={value?.customer} placeholder="Customer or fleet name (optional)" maxLength={200} /><div><Label htmlFor="specifications" className="text-xs font-semibold">Specifications and vehicle notes</Label><Textarea id="specifications" name="specifications" defaultValue={value?.specifications} maxLength={20000} placeholder="Add your verified specifications, fluid information or vehicle notes…" className="mt-2 min-h-32 rounded-xl border-border bg-white text-sm leading-6" /></div></>;
 }
 function Field({ label, ...props }: React.ComponentProps<typeof Input> & { label: string }) {
   return <div><Label htmlFor={props.name} className="text-xs font-semibold">{label}</Label><Input {...props} id={props.name} className="mt-2 h-11 rounded-lg border-border bg-white text-sm" /></div>;
