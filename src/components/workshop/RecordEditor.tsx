@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, CarFront, BookOpen, StickyNote, History, Sparkles } from "lucide-react";
+import { Loader2, CarFront, BookOpen, StickyNote, History, Sparkles, ScanLine } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { api } from "@/lib/workshop-api";
 import type { RecordKind, RepairTimeEntry, Vehicle, VinLookupResult, WorkshopRecord, Workspace } from "@/lib/workshop-types";
 import { Pick } from "./primitives";
+import LicenceDiskScanner from "./LicenceDiskScanner";
+import type { LicenceDiskDetails } from "@/lib/licence-disk";
 import { toast } from "sonner";export type EditorTarget = { entity: "vehicle"; value?: Vehicle } | { entity: "record"; kind: RecordKind; value?: WorkshopRecord; vehicleId?: string };
 export default function RecordEditor({ target, close, data, refresh }: { target: EditorTarget; close: () => void; data: Workspace; refresh: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
@@ -78,11 +80,12 @@ function VehicleFields({ value }: { value?: Vehicle }) {
   const [fields, setFields] = useState({
     make: value?.make || "", model: value?.model || "", year: value?.year || "",
     engine: value?.engine || "", engineModel: value?.engineModel || "", engineNumber: value?.engineNumber || "",
-    vin: value?.vin || "",
+    vin: value?.vin || "", registration: value?.registration || "",
   });
   const [vinBusy, setVinBusy] = useState(false);
   const [vinNote, setVinNote] = useState("");
   const [vinError, setVinError] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
   const change = (field: keyof typeof fields) => (event: React.ChangeEvent<HTMLInputElement>) =>
     setFields(current => ({ ...current, [field]: event.target.value }));
   const vinLength = fields.vin.replace(/[\s-]+/g, "").length;
@@ -109,6 +112,36 @@ function VehicleFields({ value }: { value?: Vehicle }) {
     finally { setVinBusy(false); }
   }
 
+  // The disk carries the identity a mechanic would otherwise copy off the
+  // windscreen; only fields still empty are written, exactly like the VIN read.
+  function applyDisk(details: LicenceDiskDetails) {
+    setScannerOpen(false); setVinError("");
+    const next = { ...fields };
+    const filled: string[] = [];
+    const diskFields: [keyof typeof fields, string, string][] = [
+      ["vin", details.vin, "VIN"],
+      ["engineNumber", details.engineNumber, "engine number"],
+      ["registration", details.registration, "registration"],
+      ["make", details.make, "make"],
+      ["model", details.model, "model"],
+    ];
+    for (const [field, text, label] of diskFields) {
+      if (!text || next[field].trim()) continue;
+      next[field] = text;
+      filled.push(label);
+    }
+    setFields(next);
+    const extras = [
+      details.licenceNumber && `licence number ${details.licenceNumber}`,
+      details.colour && `colour ${details.colour}`,
+      details.expiry && `expiry date ${details.expiry}`,
+    ].filter(Boolean).join(", ");
+    const filledNote = filled.length
+      ? `Filled ${filled.join(", ")} from the licence disk.`
+      : "Every detail the disk held was already filled in, so your values were left alone.";
+    setVinNote(`${filledNote}${extras ? ` The disk also reads ${extras}, which this form has no field for.` : ""} Check the values before saving.`);
+  }
+
   return <><div className="grid gap-4 sm:grid-cols-2">
     <Field label="Make" name="make" required value={fields.make} onChange={change("make")} placeholder="e.g. Volkswagen" maxLength={80} />
     <Field label="Model" name="model" required value={fields.model} onChange={change("model")} placeholder="e.g. Golf" maxLength={100} />
@@ -116,17 +149,18 @@ function VehicleFields({ value }: { value?: Vehicle }) {
     <Field label="Engine / variant" name="engine" value={fields.engine} onChange={change("engine")} placeholder="e.g. 1.6 TDI" maxLength={100} />
     <Field label="Engine model" name="engineModel" value={fields.engineModel} onChange={change("engineModel")} placeholder="e.g. CWVA, K20C" maxLength={100} />
     <Field label="Engine number" name="engineNumber" value={fields.engineNumber} onChange={change("engineNumber")} placeholder="Stamped engine number" maxLength={60} />
-    <Field label="Registration" name="registration" defaultValue={value?.registration} placeholder="Registration number" maxLength={30} />
+    <Field label="Registration" name="registration" value={fields.registration} onChange={change("registration")} placeholder="Registration number" maxLength={30} />
     <div>
       <Label htmlFor="vin" className="text-xs font-semibold">VIN</Label>
       <Input id="vin" name="vin" value={fields.vin} onChange={change("vin")} placeholder="Vehicle identification number" maxLength={30} className="mt-2 h-11 rounded-lg border-border bg-white font-mono text-sm" />
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Button type="button" variant="outline" size="sm" disabled={vinBusy || vinLength < 11} onClick={suggestFromVin} className="h-8 rounded-lg px-3 text-[11px] font-semibold">{vinBusy ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Sparkles size={13} className="mr-1.5" />}{vinBusy ? "Reading VIN…" : "Suggest missing details"}</Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => setScannerOpen(true)} className="h-8 rounded-lg px-3 text-[11px] font-semibold"><ScanLine size={13} className="mr-1.5" />Scan licence disk</Button>
         <span className="text-[10px] text-muted-foreground">Fills only empty fields</span>
       </div>
       {(vinError || vinNote) && <p role={vinError ? "alert" : undefined} className={vinError ? "mt-2 text-[11px] leading-5 text-destructive" : "mt-2 text-[11px] leading-5 text-primary"}>{vinError || vinNote}</p>}
     </div>
-  </div><Field label="Customer / owner" name="customer" defaultValue={value?.customer} placeholder="Customer or fleet name (optional)" maxLength={200} /><div><Label htmlFor="specifications" className="text-xs font-semibold">Specifications and vehicle notes</Label><Textarea id="specifications" name="specifications" defaultValue={value?.specifications} maxLength={20000} placeholder="Add your verified specifications, fluid information or vehicle notes…" className="mt-2 min-h-32 rounded-xl border-border bg-white text-sm leading-6" /></div></>;
+  </div><Field label="Customer / owner" name="customer" defaultValue={value?.customer} placeholder="Customer or fleet name (optional)" maxLength={200} /><div><Label htmlFor="specifications" className="text-xs font-semibold">Specifications and vehicle notes</Label><Textarea id="specifications" name="specifications" defaultValue={value?.specifications} maxLength={20000} placeholder="Add your verified specifications, fluid information or vehicle notes…" className="mt-2 min-h-32 rounded-xl border-border bg-white text-sm leading-6" /></div>{scannerOpen && <LicenceDiskScanner close={() => setScannerOpen(false)} onResult={applyDisk} />}</>;
 }
 function Field({ label, ...props }: React.ComponentProps<typeof Input> & { label: string }) {
   return <div><Label htmlFor={props.name} className="text-xs font-semibold">{label}</Label><Input {...props} id={props.name} className="mt-2 h-11 rounded-lg border-border bg-white text-sm" /></div>;
