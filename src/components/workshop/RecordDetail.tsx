@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, download } from "@/lib/workshop-api";
-import { torqueUnits, type RepairTimeEntry, type TorqueUnit, type Vehicle, type WorkshopRecord, type Workspace } from "@/lib/workshop-types";
+import { torqueUnits, type RepairTimeEntry, type TorqueUnit, type Vehicle, type VinLookupResult, type WorkshopRecord, type Workspace } from "@/lib/workshop-types";
 import { fileSize, prettyDate } from "./primitives";
 import TorqueSearch from "./TorqueSearch";
 import GeminiSearch from "./GeminiSearch";
@@ -18,6 +18,7 @@ import RepairTimeList from "./RepairTimeList";
 import type { EditorTarget } from "./RecordEditor";
 import { toast } from "sonner";
 export type DetailTarget = { entity: "vehicle" | "record"; id: string };
+const vinLabels: Record<string, string> = { make: "make", model: "model", year: "year", engine: "engine / variant", engineModel: "engine model" };
 type TorqueDraftRow = { fastener: string; stage: string; value: string; unit: TorqueUnit };
 
 export default function RecordDetail({ target, data, close, edit, remove, upload, view, refresh }: { target: DetailTarget; data: Workspace; close: () => void; edit: (target: EditorTarget) => void; remove: (entity: string, id: string, title: string) => void; upload: (id: string) => void; view: (target: DetailTarget) => void; refresh: () => Promise<void> }) {
@@ -32,6 +33,9 @@ export default function RecordDetail({ target, data, close, edit, remove, upload
   const [groqTimesOpen, setGroqTimesOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualEdit, setManualEdit] = useState<RepairTimeEntry | undefined>(undefined);
+  const [vinBusy, setVinBusy] = useState(false);
+  const [vinNote, setVinNote] = useState("");
+  const [vinError, setVinError] = useState("");
   const item = target.entity === "vehicle" ? data.vehicles.find(v => v.id === target.id) : data.records.find(r => r.id === target.id);
   if (!item) return null;
   const vehicle = target.entity === "vehicle" ? item as Vehicle : data.vehicles.find(v => v.id === (item as WorkshopRecord).vehicleId);
@@ -44,6 +48,40 @@ export default function RecordDetail({ target, data, close, edit, remove, upload
   const totalRepairMinutes = serviceRecords.reduce((sum, r) => sum + (r.repairTimeMinutes || 0), 0);
   const formatRepairTime = (minutes: number) => minutes >= 60 ? `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ""}` : `${minutes} min`;
   const repairTimes = vehicle?.repairTimes || [];
+  // A saved vehicle can be completed in place: the VIN read fills only the
+  // details already marked "Not recorded" and saves them onto the record.
+  async function suggestVehicleDetails() {
+    if (!vehicle) return;
+    setVinBusy(true); setVinError(""); setVinNote("");
+    try {
+      const result = await api<VinLookupResult>("vin-lookup", { vin: vehicle.vin });
+      const next = {
+        make: vehicle.make || "", model: vehicle.model || "", year: vehicle.year || "",
+        engine: vehicle.engine || "", engineModel: vehicle.engineModel || "",
+      };
+      const filled: string[] = [];
+      for (const field of ["make", "model", "year", "engine", "engineModel"] as const) {
+        const text = result.fields[field];
+        if (!text || next[field].trim()) continue;
+        next[field] = text;
+        filled.push(vinLabels[field]);
+      }
+      const caveats = result.warnings.length ? ` ${result.warnings.join(" ")}` : "";
+      if (!filled.length) {
+        setVinNote(`Nothing this VIN could confirm was missing, so the record was left unchanged.${caveats}`);
+        return;
+      }
+      await api("records", {
+        action: "save", entity: "vehicle", id: vehicle.id, kind: "vehicle", vehicleId: "",
+        ...next, engineNumber: vehicle.engineNumber || "", registration: vehicle.registration || "",
+        vin: vehicle.vin, customer: vehicle.customer || "", specifications: vehicle.specifications || "",
+      });
+      await refresh();
+      setVinNote(`Filled ${filled.join(", ")} from the VIN and saved them. Check them against the vehicle.${caveats}`);
+      toast.success(`Added ${filled.join(", ")} from the VIN`);
+    } catch (error) { setVinError((error as Error).message); }
+    finally { setVinBusy(false); }
+  }
   async function refreshRepairTimes() {
     if (!vehicle) return;
     setRefreshing(true);
@@ -86,7 +124,7 @@ export default function RecordDetail({ target, data, close, edit, remove, upload
     finally { setTorqueBusy(false); }
   }
   return <><Dialog open onOpenChange={open => { if (!open) close(); }}><DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto rounded-2xl border-border bg-white p-6 sm:rounded-2xl sm:p-8"><DialogHeader><div className="mb-3 flex items-center gap-2"><Badge variant="secondary" className="rounded-md bg-primary/10 px-2.5 py-1 text-primary">{record ? { procedure: "Service procedure", note: "Repair note", service: "Service history" }[record.kind] : "Vehicle record"}</Badge>{record?.category && <Badge variant="outline" className="rounded-md border-border py-1">{record.category}</Badge>}</div><DialogTitle className="pr-5 font-heading text-2xl font-bold">{title}</DialogTitle><DialogDescription className="pt-2">Added by {item.createdBy} · Updated {prettyDate(item.updatedAt)}</DialogDescription></DialogHeader>
-    {record ? <>{vehicle && <button onClick={() => view({ entity: "vehicle", id: vehicle.id })} className="flex items-center gap-2 rounded-xl border border-border bg-background p-4 text-left text-sm font-semibold text-primary"><CarFront size={18} />{vehicle.make} {vehicle.model} {vehicle.year}{vehicle.registration && <span className="ml-auto font-mono text-xs">{vehicle.registration}</span>}</button>}{record.kind === "service" && <div className="flex flex-wrap gap-5 text-xs text-muted-foreground"><span>Service date: <strong className="text-foreground">{record.date ? prettyDate(record.date) : "Not recorded"}</strong></span><span>Odometer: <strong className="text-foreground">{record.mileage || "Not recorded"}</strong></span><span className="flex items-center gap-1.5"><Clock size={13} />Repair time: <strong className="text-foreground">{record.repairTimeMinutes ? formatRepairTime(record.repairTimeMinutes) : "Not recorded"}</strong></span></div>}<div className="whitespace-pre-wrap break-words rounded-xl border border-border bg-background/60 p-5 text-sm leading-7">{record.content}</div></> : <><dl className="grid grid-cols-2 gap-x-5 gap-y-5 rounded-xl bg-background p-5">{([["Year", vehicle.year], ["Engine / variant", vehicle.engine], ["Engine model", vehicle.engineModel], ["Engine number", vehicle.engineNumber], ["Registration", vehicle.registration], ["VIN", vehicle.vin], ["Customer / owner", vehicle.customer], ["Repair time logged", totalRepairMinutes ? formatRepairTime(totalRepairMinutes) : ""]] as [string, string][]).map(([label, value]) => <div key={label}><dt className="text-[11px] text-muted-foreground">{label}</dt><dd className="mt-1 break-all text-sm font-medium">{value || "Not recorded"}</dd></div>)}</dl><div><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-bold">Repair times <span className="ml-1 text-muted-foreground">({repairTimes.length})</span></h3><div className="flex items-center gap-3">{vehicle.vin && <a href={`https://partsouq.com/en/search/all?q=${encodeURIComponent(vehicle.vin)}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs font-semibold text-primary">Search VIN on Partsouq<ExternalLink size={13} /></a>}{canEdit && <button onClick={() => { setManualEdit(undefined); setManualOpen(true); }} className="flex items-center gap-1 text-xs font-semibold text-primary"><Plus size={13} />Add repair time</button>}{canEdit && <button onClick={() => setGroqTimesOpen(true)} className="flex items-center gap-1 text-xs font-semibold text-primary"><Sparkles size={13} />Search times with Groq</button>}{canEdit && vehicle.vin && <button onClick={() => setGeminiOpen(true)} className="flex items-center gap-1 text-xs font-semibold text-primary"><Sparkles size={13} />Search times with Gemini</button>}{canEdit && vehicle.vin && <button onClick={refreshRepairTimes} disabled={refreshing} className="flex items-center gap-1 text-xs font-semibold text-primary disabled:opacity-60">{refreshing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}Refresh</button>}</div></div>{repairTimes.length ? <RepairTimeList entries={repairTimes} canEdit={canEdit} formatMinutes={formatRepairTime} onEdit={entry => { setManualEdit(entry); setManualOpen(true); }} /> : <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">No repair times yet. Add one by hand, import a repair-time file in Settings, or log service entries.</p>}{vehicle.repairTimesUpdatedAt && <p className="mt-2 text-[10px] text-muted-foreground">Updated {prettyDate(vehicle.repairTimesUpdatedAt)}{vehicle.repairTimesSource ? ` · ${vehicle.repairTimesSource}` : ""}</p>}</div>
+    {record ? <>{vehicle && <button onClick={() => view({ entity: "vehicle", id: vehicle.id })} className="flex items-center gap-2 rounded-xl border border-border bg-background p-4 text-left text-sm font-semibold text-primary"><CarFront size={18} />{vehicle.make} {vehicle.model} {vehicle.year}{vehicle.registration && <span className="ml-auto font-mono text-xs">{vehicle.registration}</span>}</button>}{record.kind === "service" && <div className="flex flex-wrap gap-5 text-xs text-muted-foreground"><span>Service date: <strong className="text-foreground">{record.date ? prettyDate(record.date) : "Not recorded"}</strong></span><span>Odometer: <strong className="text-foreground">{record.mileage || "Not recorded"}</strong></span><span className="flex items-center gap-1.5"><Clock size={13} />Repair time: <strong className="text-foreground">{record.repairTimeMinutes ? formatRepairTime(record.repairTimeMinutes) : "Not recorded"}</strong></span></div>}<div className="whitespace-pre-wrap break-words rounded-xl border border-border bg-background/60 p-5 text-sm leading-7">{record.content}</div></> : <><dl className="grid grid-cols-2 gap-x-5 gap-y-5 rounded-xl bg-background p-5">{([["Year", vehicle.year], ["Engine / variant", vehicle.engine], ["Engine model", vehicle.engineModel], ["Engine number", vehicle.engineNumber], ["Registration", vehicle.registration], ["VIN", vehicle.vin], ["Customer / owner", vehicle.customer], ["Repair time logged", totalRepairMinutes ? formatRepairTime(totalRepairMinutes) : ""]] as [string, string][]).map(([label, value]) => <div key={label}><dt className="text-[11px] text-muted-foreground">{label}</dt><dd className="mt-1 break-all text-sm font-medium">{value || "Not recorded"}</dd></div>)}</dl>{canEdit && vehicle.vin && <div className="flex flex-wrap items-center gap-3"><Button type="button" variant="outline" size="sm" disabled={vinBusy} onClick={suggestVehicleDetails} className="h-9 rounded-lg px-3 text-xs font-semibold">{vinBusy ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Sparkles size={13} className="mr-1.5" />}{vinBusy ? "Reading VIN…" : "Suggest missing details from VIN"}</Button><span className="text-[10px] text-muted-foreground">Fills only the details marked “Not recorded”.</span></div>}{(vinError || vinNote) && <p role={vinError ? "alert" : undefined} className={vinError ? "text-xs text-destructive" : "text-xs leading-5 text-primary"}>{vinError || vinNote}</p>}<div><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-bold">Repair times <span className="ml-1 text-muted-foreground">({repairTimes.length})</span></h3><div className="flex items-center gap-3">{vehicle.vin && <a href={`https://partsouq.com/en/search/all?q=${encodeURIComponent(vehicle.vin)}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs font-semibold text-primary">Search VIN on Partsouq<ExternalLink size={13} /></a>}{canEdit && <button onClick={() => { setManualEdit(undefined); setManualOpen(true); }} className="flex items-center gap-1 text-xs font-semibold text-primary"><Plus size={13} />Add repair time</button>}{canEdit && <button onClick={() => setGroqTimesOpen(true)} className="flex items-center gap-1 text-xs font-semibold text-primary"><Sparkles size={13} />Search times with Groq</button>}{canEdit && vehicle.vin && <button onClick={() => setGeminiOpen(true)} className="flex items-center gap-1 text-xs font-semibold text-primary"><Sparkles size={13} />Search times with Gemini</button>}{canEdit && vehicle.vin && <button onClick={refreshRepairTimes} disabled={refreshing} className="flex items-center gap-1 text-xs font-semibold text-primary disabled:opacity-60">{refreshing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}Refresh</button>}</div></div>{repairTimes.length ? <RepairTimeList entries={repairTimes} canEdit={canEdit} formatMinutes={formatRepairTime} onEdit={entry => { setManualEdit(entry); setManualOpen(true); }} /> : <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">No repair times yet. Add one by hand, import a repair-time file in Settings, or log service entries.</p>}{vehicle.repairTimesUpdatedAt && <p className="mt-2 text-[10px] text-muted-foreground">Updated {prettyDate(vehicle.repairTimesUpdatedAt)}{vehicle.repairTimesSource ? ` · ${vehicle.repairTimesSource}` : ""}</p>}</div>
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-bold">Tightening torques <span className="ml-1 text-muted-foreground">({vehicle.torqueSpecs?.length || 0})</span></h3>{canEdit && !torqueDraft && <div className="flex flex-wrap items-center justify-end gap-3"><button onClick={() => setSearchOpen(true)} className="flex items-center gap-1 text-xs font-semibold text-primary"><Globe size={14} />Search torque specifications online</button><button onClick={startTorques} className="flex items-center gap-1 text-xs font-semibold text-primary"><Wrench size={14} />{vehicle.torqueSpecs?.length ? "Edit torques" : "Add torques"}</button></div>}</div>
       {torqueDraft ? <div className="rounded-xl border border-border p-4">
