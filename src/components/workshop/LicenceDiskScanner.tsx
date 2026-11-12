@@ -506,6 +506,11 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
     width: preview.width * boxW,
     height: preview.height * boxH,
   };
+  // A phone photo is usually portrait: fill the panel with it instead of
+  // squeezing it into a landscape 4:3 box, where the disk ends up thumbnail
+  // sized. The ratio is clamped and the height capped so neither extreme can
+  // run away with the dialog.
+  const previewAspect = dims ? Math.min(1.9, Math.max(0.62, dims.w / dims.h)) : 4 / 3;
 
   return (
     <div className="mt-3 space-y-2">
@@ -514,16 +519,22 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
           <Move size={14} className="mt-0.5 shrink-0 text-primary" />
           <span>
             {autoFramed
-              ? "We framed the barcode for you. Drag the box to move it, or pull a corner to tighten it around the bars, then press Read barcode."
-              : "Drag the box over the block of bars on the licence disk, pull a corner to tighten it, then press Read barcode."}
+              ? "We framed the barcode for you. Drag anywhere inside the box to move it, or drag a corner dot to tighten it around the bars, then press Read barcode."
+              : "Drag the box over the block of bars on the licence disk, drag a corner dot to tighten it, then press Read barcode."}
           </span>
         </div>
       )}
-      <div ref={boxRef} className="relative overflow-hidden rounded-xl bg-black" style={{ width: boxW, aspectRatio: "4/3" }}>
-        <img src={previewUrl} className="h-full w-full object-contain" alt="Licence disk" />
-        <div className="pointer-events-none absolute inset-0" style={{ boxShadow: "inset 0 0 0 9999px rgba(0,0,0,0.62)" }} />
+      {/* touch-none on the stage stops iOS from scrolling the dialog while a
+          finger drags the frame; without it every drag becomes a page pan. */}
+      <div
+        ref={boxRef}
+        className="relative select-none rounded-xl bg-black touch-none"
+        style={{ width: boxW, aspectRatio: String(previewAspect), maxHeight: "min(62vh, 520px)", WebkitTouchCallout: "none" }}
+      >
+        <img src={previewUrl} draggable={false} className="h-full w-full select-none rounded-xl object-contain" alt="Licence disk" />
+        <div className="pointer-events-none absolute inset-0 rounded-xl" style={{ boxShadow: "inset 0 0 0 9999px rgba(0,0,0,0.62)" }} />
         <div
-          className="crop-body absolute rounded-sm border-2 border-solid border-white/80 shadow-sm"
+          className="absolute cursor-move touch-none rounded-sm border-2 border-solid border-white/80 shadow-sm"
           style={{ left: `${preview.left * 100}%`, top: `${preview.top * 100}%`, width: `${preview.width * 100}%`, height: `${preview.height * 100}%` }}
           onPointerDown={e => pointerDown(e, "move")}
           role="button"
@@ -531,17 +542,22 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
           tabIndex={0}
         />
         {(["nw", "ne", "sw", "se"] as Corner[]).map(corner => {
-          const x = corner.includes("w") ? cropPx.left : cropPx.left + cropPx.width - 10;
-          const y = corner.includes("n") ? cropPx.top : cropPx.top + cropPx.height - 10;
+          // A fingertip needs a real target: each corner gets a 44px square
+          // centred on the corner, with the small dot drawn inside it.
+          const x = corner.includes("w") ? cropPx.left : cropPx.left + cropPx.width;
+          const y = corner.includes("n") ? cropPx.top : cropPx.top + cropPx.height;
           return (
             <div
               key={corner}
-              className="absolute h-3 w-3 cursor-pointer touch-none rounded-full border border-primary bg-white shadow-md outline-none"
-              style={{ left: `${x}px`, top: `${y}px` }}
+              className="absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full touch-none"
+              style={{ left: `${x}px`, top: `${y}px`, cursor: corner === "nw" || corner === "se" ? "nwse-resize" : "nesw-resize" }}
               onPointerDown={e => pointerDown(e, corner)}
+              role="button"
               aria-label={`Resize from ${corner} corner`}
               tabIndex={-1}
-            />
+            >
+              <span className="pointer-events-none block h-3.5 w-3.5 rounded-full border-2 border-primary bg-white shadow-md" />
+            </div>
           );
         })}
       </div>
