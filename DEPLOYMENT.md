@@ -244,7 +244,9 @@ The scanner's live camera needs a secure origin: browsers do not expose
 only needed for the in-app camera view.
 
 The `tls` service in `docker-compose.yml` puts Caddy in front of the app on port
-`3443` and signs the address with its own local authority.
+`3443` and signs the address with its own local authority. It writes its own
+Caddyfile at start-up from `WORKSHOP_TLS_HOST`, so a stack pasted into Portainer
+or another management interface needs no extra files beside the compose file.
 
 1. Point it at the address you browse from, then redeploy:
 
