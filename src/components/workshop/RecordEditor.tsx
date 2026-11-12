@@ -87,8 +87,14 @@ function VehicleFields({ value }: { value?: Vehicle }) {
   const [vinNote, setVinNote] = useState("");
   const [vinError, setVinError] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
-  const change = (field: keyof typeof fields) => (event: React.ChangeEvent<HTMLInputElement>) =>
+  // Fields the licence disk filled, so the operator can see what came from the
+  // disk rather than from their own typing before saving.
+  const [fromDisk, setFromDisk] = useState<Partial<Record<keyof typeof fields, boolean>>>({});
+  const change = (field: keyof typeof fields) => (event: React.ChangeEvent<HTMLInputElement>) => {
     setFields(current => ({ ...current, [field]: event.target.value }));
+    // Once the value is edited it is the operator's, so drop the disk mark.
+    setFromDisk(current => (current[field] ? { ...current, [field]: false } : current));
+  };
   const vinLength = fields.vin.replace(/[\s-]+/g, "").length;
 
   async function suggestFromVin() {
@@ -129,12 +135,15 @@ function VehicleFields({ value }: { value?: Vehicle }) {
       ["make", details.make, "make"],
       ["model", details.model, "model"],
     ];
+    const marked: Partial<Record<keyof typeof fields, boolean>> = {};
     for (const [field, text, label] of diskFields) {
       if (!text || next[field].trim()) continue;
       next[field] = text;
       filled.push(label);
+      marked[field] = true;
     }
     setFields(next);
+    setFromDisk(current => ({ ...current, ...marked }));
     const filledNote = filled.length
       ? `Filled ${filled.join(", ")} from the licence disk.`
       : "Every detail the disk held was already filled in, so your values were left alone.";
@@ -142,19 +151,19 @@ function VehicleFields({ value }: { value?: Vehicle }) {
   }
 
   return <><div className="grid gap-4 sm:grid-cols-2">
-    <Field label="Make" name="make" required value={fields.make} onChange={change("make")} placeholder="e.g. Volkswagen" maxLength={80} />
-    <Field label="Model" name="model" required value={fields.model} onChange={change("model")} placeholder="e.g. Golf" maxLength={100} />
+    <Field label="Make" name="make" required value={fields.make} onChange={change("make")} placeholder="e.g. Volkswagen" maxLength={80} fromDisk={!!fromDisk.make} />
+    <Field label="Model" name="model" required value={fields.model} onChange={change("model")} placeholder="e.g. Golf" maxLength={100} fromDisk={!!fromDisk.model} />
     <Field label="Year" name="year" inputMode="numeric" pattern="[0-9]{4}" value={fields.year} onChange={change("year")} placeholder="e.g. 2018" maxLength={4} />
     <Field label="Engine / variant" name="engine" value={fields.engine} onChange={change("engine")} placeholder="e.g. 1.6 TDI" maxLength={100} />
     <Field label="Engine model" name="engineModel" value={fields.engineModel} onChange={change("engineModel")} placeholder="e.g. CWVA, K20C" maxLength={100} />
-    <Field label="Engine number" name="engineNumber" value={fields.engineNumber} onChange={change("engineNumber")} placeholder="Stamped engine number" maxLength={60} />
-    <Field label="Registration" name="registration" value={fields.registration} onChange={change("registration")} placeholder="Registration number" maxLength={30} />
-    <Field label="Licence number" name="licenceNumber" value={fields.licenceNumber} onChange={change("licenceNumber")} placeholder="Number printed on the disk" maxLength={60} />
-    <Field label="Colour" name="colour" value={fields.colour} onChange={change("colour")} placeholder="e.g. White" maxLength={40} />
-    <Field label="Licence expiry" name="expiry" value={fields.expiry} onChange={change("expiry")} placeholder="e.g. 2027-03-31" maxLength={20} />
+    <Field label="Engine number" name="engineNumber" value={fields.engineNumber} onChange={change("engineNumber")} placeholder="Stamped engine number" maxLength={60} fromDisk={!!fromDisk.engineNumber} />
+    <Field label="Registration" name="registration" value={fields.registration} onChange={change("registration")} placeholder="Registration number" maxLength={30} fromDisk={!!fromDisk.registration} />
+    <Field label="Licence number" name="licenceNumber" value={fields.licenceNumber} onChange={change("licenceNumber")} placeholder="Number printed on the disk" maxLength={60} fromDisk={!!fromDisk.licenceNumber} />
+    <Field label="Colour" name="colour" value={fields.colour} onChange={change("colour")} placeholder="e.g. White" maxLength={40} fromDisk={!!fromDisk.colour} />
+    <Field label="Licence expiry" name="expiry" value={fields.expiry} onChange={change("expiry")} placeholder="e.g. 2027-03-31" maxLength={20} fromDisk={!!fromDisk.expiry} />
     <div>
-      <Label htmlFor="vin" className="text-xs font-semibold">VIN</Label>
-      <Input id="vin" name="vin" value={fields.vin} onChange={change("vin")} placeholder="Vehicle identification number" maxLength={30} className="mt-2 h-11 rounded-lg border-border bg-white font-mono text-sm" />
+      <Label htmlFor="vin" className="text-xs font-semibold">VIN{fromDisk.vin && <ScanMark />}</Label>
+      <Input id="vin" name="vin" value={fields.vin} onChange={change("vin")} placeholder="Vehicle identification number" maxLength={30} className={fromDisk.vin ? "mt-2 h-11 rounded-lg border-primary/60 bg-white font-mono text-sm ring-1 ring-primary/20" : "mt-2 h-11 rounded-lg border-border bg-white font-mono text-sm"} />
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Button type="button" variant="outline" size="sm" disabled={vinBusy || vinLength < 11} onClick={suggestFromVin} className="h-8 rounded-lg px-3 text-[11px] font-semibold">{vinBusy ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Sparkles size={13} className="mr-1.5" />}{vinBusy ? "Reading VIN…" : "Suggest missing details"}</Button>
         <Button type="button" variant="outline" size="sm" onClick={() => setScannerOpen(true)} className="h-8 rounded-lg px-3 text-[11px] font-semibold"><ScanLine size={13} className="mr-1.5" />Scan licence disk</Button>
@@ -164,7 +173,11 @@ function VehicleFields({ value }: { value?: Vehicle }) {
     </div>
   </div><Field label="Customer / owner" name="customer" defaultValue={value?.customer} placeholder="Customer or fleet name (optional)" maxLength={200} /><div><Label htmlFor="specifications" className="text-xs font-semibold">Specifications and vehicle notes</Label><Textarea id="specifications" name="specifications" defaultValue={value?.specifications} maxLength={20000} placeholder="Add your verified specifications, fluid information or vehicle notes…" className="mt-2 min-h-32 rounded-xl border-border bg-white text-sm leading-6" /></div>{scannerOpen && <LicenceDiskScanner close={() => setScannerOpen(false)} onResult={applyDisk} />}</>;
 }
-function Field({ label, ...props }: React.ComponentProps<typeof Input> & { label: string }) {
-  return <div><Label htmlFor={props.name} className="text-xs font-semibold">{label}</Label><Input {...props} id={props.name} className="mt-2 h-11 rounded-lg border-border bg-white text-sm" /></div>;
+function ScanMark() {
+  return <span className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">from disk</span>;
+}
+
+function Field({ label, fromDisk, ...props }: React.ComponentProps<typeof Input> & { label: string; fromDisk?: boolean }) {
+  return <div><Label htmlFor={props.name} className="text-xs font-semibold">{label}{fromDisk && <ScanMark />}</Label><Input {...props} id={props.name} className={fromDisk ? "mt-2 h-11 rounded-lg border-primary/60 bg-white text-sm ring-1 ring-primary/20" : "mt-2 h-11 rounded-lg border-border bg-white text-sm"} /></div>;
 }
 
