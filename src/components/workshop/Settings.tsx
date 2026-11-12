@@ -27,6 +27,7 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
   const [readError, setReadError] = useState("");
   const [applyBusy, setApplyBusy] = useState(false);
   const [applyVehicle, setApplyVehicle] = useState("none");
+  const [backupBusy, setBackupBusy] = useState(false);
 
   const formatMinutes = (minutes: number) => minutes < 60 ? `${minutes} min` : `${(minutes / 60).toFixed(1)} h ${minutes % 60} min`;
   const operationLabel = (op: RepairSheetOperation) => op.operation.startsWith(op.code) ? op.operation.slice(op.code.length).trim() : op.operation;
@@ -128,7 +129,16 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
           <div className="space-y-5 p-6">
             <div className="flex items-start gap-3"><span className="rounded-lg bg-primary/10 p-2 text-primary"><Server size={18} /></span><div><h3 className="text-xs font-semibold">Local server storage</h3><p className="mt-1.5 text-[11px] leading-5 text-muted-foreground">Workshop records, accounts and files are stored server-side, not in browser storage. Use a persistent Docker volume for deployment.</p></div></div>
             <div className="flex items-start gap-3"><span className="rounded-lg bg-primary/10 p-2 text-primary"><ShieldCheck size={18} /></span><div><h3 className="text-xs font-semibold">Access checked on every request</h3><p className="mt-1.5 text-[11px] leading-5 text-muted-foreground">Viewers read and download. Editors maintain records. Administrators also manage accounts and settings.</p></div></div>
-            <div className="border-t border-border pt-4"><Button disabled={!editor} variant="outline" onClick={() => download("export", "workshop-atlas-records.json").catch(e => toast.error(e.message))} className="h-10 w-full rounded-lg text-xs"><Download size={15} className="mr-2" />Export workshop records</Button><p className="mt-2 text-[10px] leading-5 text-muted-foreground">JSON record export excludes account credentials and file contents. Back up the entire data volume for a complete restore.</p></div>
+            <div className="space-y-4 border-t border-border pt-4">
+              <div>
+                {admin ? <Button variant="secondary" disabled={backupBusy} onClick={() => { setBackupBusy(true); download("backup", "workshop-atlas-backup.tar.gz").catch(e => toast.error(e.message)).finally(() => setBackupBusy(false)); }} className="h-10 w-full rounded-lg text-xs font-semibold">{backupBusy ? <Loader2 size={15} className="mr-2 animate-spin" /> : <Database size={15} className="mr-2" />}{backupBusy ? "Packing your backup…" : "Download full backup"}</Button> : <p className="flex items-center gap-2 text-xs text-muted-foreground"><LockKeyhole size={14} />Only administrators can download a full backup.</p>}
+                <p className="mt-2 text-[10px] leading-5 text-muted-foreground">Everything needed to restore: the database, every uploaded file and the repair-time sheets, in one .tar.gz. The server also writes one of these to its backup folder every day.</p>
+              </div>
+              <div>
+                <Button disabled={!editor} variant="outline" onClick={() => download("export", "workshop-atlas-records.json").catch(e => toast.error(e.message))} className="h-10 w-full rounded-lg text-xs"><Download size={15} className="mr-2" />Export workshop records (JSON)</Button>
+                <p className="mt-2 text-[10px] leading-5 text-muted-foreground">Readable record data for moving elsewhere. It leaves out account credentials and file contents, so it cannot restore a workshop.</p>
+              </div>
+            </div>
           </div>
         </Panel>
       </div>

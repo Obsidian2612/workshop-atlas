@@ -25,8 +25,13 @@ services:
       GROQ_API_KEY: "${GROQ_API_KEY:-}"
       GROQ_MODEL: "${GROQ_MODEL:-openai/gpt-oss-20b}"
       GROQ_TIMEOUT_MS: "${GROQ_TIMEOUT_MS:-60000}"
+      # Nightly restorable copy: a folder per run, pruned to BACKUP_RETENTION.
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION: "${WORKSHOP_BACKUP_RETENTION:-7}"
+      BACKUP_INTERVAL_HOURS: "${WORKSHOP_BACKUP_HOURS:-24}"
     volumes:
       - workshop-data:/data
+      - workshop-backups:/backups
     read_only: true
     tmpfs:
       - /tmp
@@ -78,4 +83,7 @@ volumes:
   # it issues a new one and every device has to trust the new root again.
   caddy-data:
   caddy-config:
+  # Separate from the data volume so a damaged or deleted database is still
+  # recoverable. Copy it to another machine or disk to survive a drive failure.
+  workshop-backups:
   workshop-data:

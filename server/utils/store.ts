@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { randomUUID, randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -445,6 +445,25 @@ function writeStore(db: DatabaseSync, before: Store, after: Store) {
 }
 
 let queue: Promise<unknown> = Promise.resolve();
+
+// Everything that touches the database joins one queue, so a snapshot can never
+// run inside somebody else's transaction.
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const next = queue.then(task);
+  queue = next.catch(() => {});
+  return next;
+}
+
+// A complete, transaction-consistent copy of the database in one file. VACUUM
+// INTO folds the write-ahead log into the copy, so the result stands on its own
+// — unlike copying workshop.sqlite by hand, which can miss the last writes.
+export function snapshot(destination: string) {
+  return enqueue(async () => {
+    const db = database();
+    rmSync(destination, { force: true });
+    db.exec(`VACUUM INTO '${destination.split("'").join("''")}'`);
+  });
+}
 
 export function transact<T>(operation: (store: Store) => T | Promise<T>, write = false): Promise<T> {
   const task = queue.then(async () => {

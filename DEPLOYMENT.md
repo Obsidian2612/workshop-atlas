@@ -72,15 +72,42 @@ The dev preview does not build Docker images; it runs the Nitro server and the V
 | Download attachments | Yes | Yes | Yes |
 | Create/edit/delete records and upload files | No | Yes | Yes |
 | Export workshop records | No | Yes | Yes |
+| Download a full backup | No | No | Yes |
 | Manage accounts and workspace settings | No | No | Yes |
 
 Every API request enforces permissions server-side. Passwords use salted scrypt hashes. Session tokens are stored in the browser's session storage for that tab and only their SHA-256 hashes are saved server-side. Sessions expire after 12 hours; logout, account deletion, password resets and role changes revoke sessions as appropriate. Closing the tab ends the browser's saved session.
 
 ## Backup and restore
 
-For a complete backup, stop the application and take a snapshot/archive of the entire `workshop-data` volume using your Docker manager's backup facility. It contains `workshop.sqlite` (workspace data, accounts and sessions), the `attachments` directory and the `repair-times-pdfs` directory. While the server is running, SQLite also keeps `workshop.sqlite-wal` and `workshop.sqlite-shm` beside the database; copy all three together if you copy a live volume by hand. Treat this backup as private customer information.
+A complete backup is the database plus the two file directories: `workshop.sqlite` (workspace data, accounts and sessions), `attachments/` and `repair-times-pdfs/`. Both of the following produce exactly that.
 
-Restore the entire volume while the application is stopped, preserving filesystem permissions, then start the same application version. The **Export workshop records** button downloads JSON record data and attachment metadata, not the attachments themselves or account credentials; it is not a complete restore archive. No restore/import upload screen is provided in this version.
+### Automatic, every night
+
+The server writes one backup folder per run into `BACKUP_DIR` (`/backups` in Docker, a separate `workshop-backups` volume). Each folder holds a verified `workshop.sqlite`, copies of the files, and a `manifest.json`. The database is captured with `VACUUM INTO`, so the snapshot is transaction-consistent and self-contained — it does not need the `-wal` and `-shm` files, unlike copying `workshop.sqlite` by hand while the app runs.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `BACKUP_DIR` | `/backups` | Where folders are written. Keep it outside the data volume. |
+| `BACKUP_INTERVAL_HOURS` | `24` | How often a backup runs, starting a minute after boot. `WORKSHOP_BACKUP_HOURS` in compose. |
+| `BACKUP_RETENTION` | `7` | How many runs to keep; older folders are deleted. `WORKSHOP_BACKUP_RETENTION` in compose. |
+| `BACKUP_ON_START` | unset | Set to `1` to run one immediately at start-up, useful for checking setup. |
+
+Unchanged files are hard-linked, so repeated runs cost little space. A backup volume on the same disk still dies with that disk: copy the folder to a NAS, a USB disk or another machine now and then.
+
+### On demand
+
+**Settings & members → Download full backup** (administrators) streams a `.tar.gz` containing `workshop.sqlite`, both file directories and a README with restore steps. It is safe to use while the workshop is open.
+
+### Restoring
+
+1. Stop the application.
+2. Put `workshop.sqlite` at the root of the data volume, after deleting `workshop.sqlite-wal` and `workshop.sqlite-shm`.
+3. Copy `attachments/` and `repair-times-pdfs/` to the same places they came from.
+4. Start the same application version again.
+
+Backups hold customer information and password hashes — treat them as private, and keep them off shared drives.
+
+**Export workshop records (JSON)** is for reading or moving record data: it leaves out account credentials and file contents, so it cannot restore a workshop on its own.
 
 ### Upgrading from the JSON store
 
