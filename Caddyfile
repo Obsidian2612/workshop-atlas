@@ -8,6 +8,12 @@
 #
 # WORKSHOP_TLS_HOST must be the address people type in: the LAN IP or hostname.
 
+{
+	# A browser opening an IP address sends no SNI, so Caddy has nothing to match
+	# the site on and fails the handshake. Name the site's host as the default.
+	default_sni {$WORKSHOP_TLS_HOST:localhost}
+}
+
 {$WORKSHOP_TLS_HOST:localhost}:{$WORKSHOP_TLS_PORT:3443} {
 	tls internal
 	encode zstd gzip
