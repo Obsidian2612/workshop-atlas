@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { createPortal } from "react-dom";
-import { Printer, X } from "lucide-react";
+import { CheckSquare, Printer, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { prettyDate } from "./primitives";
 import type { User, Vehicle, WorkshopRecord } from "@/lib/workshop-types";
@@ -32,6 +33,12 @@ export default function JobSheet({ workshop, user, vehicle, entry, history, clos
 }) {
   const rows = entry ? [entry] : history || [];
   const total = rows.reduce((sum, row) => sum + (row.repairTimeMinutes || 0), 0);
+  // The reference page is opt-in: a customer sheet usually stops at the work
+  // performed, while the copy kept with the job card wants the times and torques.
+  const [extras, setExtras] = useState(false);
+  const repairTimes = vehicle.repairTimes || [];
+  const torques = vehicle.torqueSpecs || [];
+  const hasExtras = repairTimes.length > 0 || torques.length > 0;
   const printed = new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   const title = vehicle.make || vehicle.model ? `${vehicle.make} ${vehicle.model}`.trim() : "Vehicle";
 
@@ -50,8 +57,19 @@ export default function JobSheet({ workshop, user, vehicle, entry, history, clos
 
   return createPortal(
     <div className="print-overlay">
-      <div className="no-print sticky top-0 z-10 mx-auto mb-4 flex max-w-[210mm] flex-wrap items-center justify-between gap-3 rounded-lg bg-neutral-900/92 px-3 py-2 text-white shadow-lg">
+      <div className="no-print sticky top-0 z-10 mx-auto mb-4 flex max-w-[210mm] flex-wrap items-center justify-between gap-3 rounded-lg bg-neutral-900/95 px-3 py-2 text-white shadow-lg">
         <p className="text-xs font-medium">{entry ? "Job sheet" : "Service history"} · {title}</p>
+        {hasExtras && (
+          <button
+            type="button"
+            aria-pressed={extras}
+            onClick={() => setExtras(open => !open)}
+            className="flex items-center gap-2 rounded-lg px-2 py-1 text-[11px] font-medium text-white/90 hover:bg-white/10"
+          >
+            {extras ? <CheckSquare size={14} /> : <Square size={14} />}
+            Add repair times &amp; torques
+          </button>
+        )}
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => window.print()} className="h-9 rounded-lg text-xs font-semibold">
             <Printer size={15} className="mr-2" />Print
@@ -144,6 +162,80 @@ export default function JobSheet({ workshop, user, vehicle, entry, history, clos
           {workshop || "My workshop"} · Printed from Workshop Atlas. Times are workshop allowances; check safety-critical specifications against an authorised source.
         </p>
       </div>
+
+      {extras && hasExtras && (
+        <div className="print-sheet mt-4">
+          <div className="flex items-start justify-between gap-6 border-b border-neutral-300 pb-3">
+            <div>
+              <h2 className="font-heading text-[17px] font-bold leading-tight text-black">{workshop || "My workshop"}</h2>
+              <p className="mt-1 text-[9px] uppercase tracking-[0.14em] text-neutral-500">Reference · {entry ? "job sheet" : "service history"}</p>
+            </div>
+            <div className="text-right text-[10px] leading-5 text-neutral-600">
+              <p className="font-semibold uppercase tracking-[0.1em] text-black">{title}</p>
+              {vehicle.registration && <p>{vehicle.registration}</p>}
+              {vehicle.vin && <p>VIN {vehicle.vin}</p>}
+            </div>
+          </div>
+
+          {repairTimes.length > 0 && (
+            <section className="mt-4">
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-black">Repair times ({repairTimes.length})</h3>
+              <table className="mt-2 w-full border-collapse text-left text-[10px]">
+                <thead>
+                  <tr className="border-b border-neutral-400 text-[9px] uppercase tracking-[0.08em] text-neutral-500">
+                    <th className="py-2 pr-3 font-semibold">Operation</th>
+                    <th className="w-[18%] py-2 pr-3 font-semibold">Scope</th>
+                    <th className="w-[14%] py-2 text-right font-semibold">Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {repairTimes.map((item, index) => (
+                    <tr key={`${item.operation}-${index}`} className="keep border-b border-neutral-200 align-top">
+                      <td className="py-2 pr-3 text-neutral-800">{item.operation}</td>
+                      <td className="py-2 pr-3 text-neutral-600">{item.scope || "—"}</td>
+                      <td className="whitespace-nowrap py-2 text-right font-semibold text-black">{formatMinutes(item.minutes)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-1.5 text-[8px] text-neutral-400">
+                Workshop allowances{vehicle.repairTimesSource ? ` · ${vehicle.repairTimesSource}` : ""}{vehicle.repairTimesUpdatedAt ? ` · updated ${prettyDate(vehicle.repairTimesUpdatedAt)}` : ""}.
+              </p>
+            </section>
+          )}
+
+          {torques.length > 0 && (
+            <section className="mt-5">
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-black">Tightening torques ({torques.length})</h3>
+              <table className="mt-2 w-full border-collapse text-left text-[10px]">
+                <thead>
+                  <tr className="border-b border-neutral-400 text-[9px] uppercase tracking-[0.08em] text-neutral-500">
+                    <th className="py-2 pr-3 font-semibold">Fastener</th>
+                    <th className="w-[18%] py-2 pr-3 font-semibold">Stage</th>
+                    <th className="w-[16%] py-2 text-right font-semibold">Torque</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {torques.map((spec, index) => (
+                    <tr key={`${spec.fastener}-${spec.stage}-${index}`} className="keep border-b border-neutral-200 align-top">
+                      <td className="py-2 pr-3 text-neutral-800">{spec.fastener}</td>
+                      <td className="py-2 pr-3 text-neutral-600">{spec.stage ? `Stage ${spec.stage}` : "—"}</td>
+                      <td className="whitespace-nowrap py-2 text-right font-semibold text-black">{spec.value} {spec.unit}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-1.5 text-[8px] text-neutral-400">
+                Verify tightening torques against the manufacturer's current data before use.
+              </p>
+            </section>
+          )}
+
+          <p className="mt-6 border-t border-neutral-200 pt-2 text-[8px] leading-4 text-neutral-400">
+            {workshop || "My workshop"} · Reference page · Printed {printed}
+          </p>
+        </div>
+      )}
     </div>,
     document.body,
   );

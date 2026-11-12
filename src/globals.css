@@ -50,6 +50,9 @@
   position: fixed;
   inset: 0;
   z-index: 60;
+  /* Radix switches pointer-events off on <body> while a modal dialog is open,
+     and that inherits: without this the sheet looks right but ignores clicks. */
+  pointer-events: auto;
   overflow-y: auto;
   background: rgba(15, 23, 42, 0.78);
   padding: 24px 16px 56px;
@@ -88,6 +91,7 @@
     border-radius: 0;
     box-shadow: none;
   }
+  .print-sheet + .print-sheet { break-before: page; page-break-before: always; margin-top: 0; }
   .no-print { display: none !important; }
   .print-sheet .keep { break-inside: avoid; page-break-inside: avoid; }
   .print-sheet thead { display: table-header-group; }
