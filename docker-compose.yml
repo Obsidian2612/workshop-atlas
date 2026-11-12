@@ -45,7 +45,8 @@ services:
     ports:
       - "${WORKSHOP_TLS_PORT:-3443}:3443"
     environment:
-      WORKSHOP_TLS_HOST: "${WORKSHOP_TLS_HOST:-localhost}"
+      # The address browsers use on the shop network; override it elsewhere.
+      WORKSHOP_TLS_HOST: "${WORKSHOP_TLS_HOST:-192.168.1.251}"
       WORKSHOP_TLS_PORT: "${WORKSHOP_TLS_PORT:-3443}"
     # The Caddyfile is written at start-up rather than bind-mounted: a stack
     # pasted into a management UI has no repository files beside its compose file.
