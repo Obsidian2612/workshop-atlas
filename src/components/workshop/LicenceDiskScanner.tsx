@@ -22,6 +22,8 @@ const CROP_SCALES = [1, 1.5, 2, 3];
 const WHOLE_SCALES = [1, 1.5, 2];
 const BINARIZE_THRESHOLDS: Array<number | null> = [null, 120, 160];
 const MAX_CANVAS_EDGE = 2400;
+// Enough magnification to frame a barcode occupying a tenth of a phone photo.
+const MAX_ZOOM = 8;
 
 function clamp01(x: number) { return Math.max(0, Math.min(1, x)); }
 
@@ -151,20 +153,6 @@ function suggestCrop(img: HTMLImageElement): CropRect | null {
   const right = Math.min(1, cols.end / w + pad);
   const bottom = Math.min(1, rows.end / h + pad);
   return { left, top, width: Math.max(0.05, right - left), height: Math.max(0.03, bottom - top) };
-}
-
-// The crop lives in preview-box fractions, and the photo is letterboxed inside
-// that box, so an image-space rectangle has to be mapped through the same fit.
-function imageRectToBox(size: { w: number; h: number }, boxW: number, boxH: number, rect: CropRect): CropRect {
-  const fit = Math.min(boxW / size.w, boxH / size.h);
-  const offsetX = (boxW - fit * size.w) / 2;
-  const offsetY = (boxH - fit * size.h) / 2;
-  return {
-    left: (offsetX + rect.left * fit * size.w) / boxW,
-    top: (offsetY + rect.top * fit * size.h) / boxH,
-    width: (rect.width * fit * size.w) / boxW,
-    height: (rect.height * fit * size.h) / boxH,
-  };
 }
 
 function makeCanvas(
@@ -345,25 +333,128 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
   const imgRef = useRef<HTMLImageElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ corner: Corner; startX: number; startY: number; orig: CropRect } | null>(null);
+  // Zoom and pan, so a small barcode can be framed on a phone. The crop stays in
+  // image fractions; these only change how the photo is projected onto the box.
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const view = useRef({ zoom: 1, pan: { x: 0, y: 0 } });
+  view.current = { zoom, pan };
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ dist: number; mid: { x: number; y: number }; zoom: number; pan: { x: number; y: number } } | null>(null);
+  const panStart = useRef<{ x: number; y: number; orig: { x: number; y: number } } | null>(null);
+
+  // Scale that fits the whole photo inside the stage; every projection below is
+  // this times the zoom.
+  function containFit() {
+    const box = boxRef.current, imgEl = imgRef.current;
+    if (!box || !imgEl || !imgEl.naturalWidth || !imgEl.naturalHeight) return 1;
+    return Math.min(box.clientWidth / imgEl.naturalWidth, box.clientHeight / imgEl.naturalHeight);
+  }
+
+  // Panning stops at the point where the photo's edge would come inside the
+  // stage, so the frame never ends up over empty black.
+  function showView(nextZoom: number, nextPan: { x: number; y: number }) {
+    const z = Math.max(1, Math.min(MAX_ZOOM, nextZoom));
+    const box = boxRef.current, imgEl = imgRef.current;
+    if (!box || !imgEl) { setZoom(z); setPan(nextPan); return; }
+    const fit = containFit();
+    const maxX = Math.max(0, (imgEl.naturalWidth * fit * z - box.clientWidth) / 2);
+    const maxY = Math.max(0, (imgEl.naturalHeight * fit * z - box.clientHeight) / 2);
+    setZoom(z);
+    setPan({ x: Math.max(-maxX, Math.min(maxX, nextPan.x)), y: Math.max(-maxY, Math.min(maxY, nextPan.y)) });
+  }
+
+  function resetView() { setZoom(1); setPan({ x: 0, y: 0 }); }
 
   const previewUrl = useMemo(() => (image ? URL.createObjectURL(image) : ""), [image]);
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   useEffect(() => {
-    function onMove(e: PointerEvent) {
-      const d = drag.current;
-      const box = boxRef.current;
-      const imgEl = imgRef.current;
-      if (!d || !box || !imgEl) return;
-      // Pointer travel is in preview pixels; the crop is in image fractions, so
-      // scale by the photo's rendered size rather than the box's.
-      const fit = Math.min(box.clientWidth / imgEl.naturalWidth, box.clientHeight / imgEl.naturalHeight);
-      setCrop(prev => applyDrag(prev, d.corner, e.clientX - d.startX, e.clientY - d.startY, fit * imgEl.naturalWidth, fit * imgEl.naturalHeight));
+    const inStage = (target: EventTarget | null) => !!boxRef.current && target instanceof Node && boxRef.current.contains(target);
+
+    function onDown(e: PointerEvent) {
+      if (!inStage(e.target)) return;
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.current.size === 2) {
+        // A second finger means pinch: stop moving the frame and take over.
+        drag.current = null;
+        panStart.current = null;
+        const [a, b] = [...pointers.current.values()];
+        pinch.current = {
+          dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+          mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+          zoom: view.current.zoom,
+          pan: view.current.pan,
+        };
+      } else if (pointers.current.size === 1 && !drag.current) {
+        // One finger on the photo itself pans the view.
+        panStart.current = { x: e.clientX, y: e.clientY, orig: view.current.pan };
+      }
     }
-    function onUp() { drag.current = null; }
+
+    function onMove(e: PointerEvent) {
+      if (!pointers.current.has(e.pointerId)) return;
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const box = boxRef.current, imgEl = imgRef.current;
+      if (!box || !imgEl) return;
+
+      if (pointers.current.size >= 2) {
+        const p = pinch.current;
+        if (!p) return;
+        const [a, b] = [...pointers.current.values()];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const rect = box.getBoundingClientRect();
+        const centre = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        const nextZoom = p.zoom * (dist / p.dist);
+        const ratio = Math.max(1, Math.min(MAX_ZOOM, nextZoom)) / p.zoom;
+        // Keep the spot between the fingers under the fingers while the scale
+        // changes, which is what makes a pinch feel anchored.
+        showView(nextZoom, {
+          x: (mid.x - centre.x) - (p.mid.x - centre.x - p.pan.x) * ratio,
+          y: (mid.y - centre.y) - (p.mid.y - centre.y - p.pan.y) * ratio,
+        });
+        return;
+      }
+
+      if (pinch.current) return; // ignore the finger left over from a pinch
+
+      const d = drag.current;
+      if (d) {
+        // Pointer travel is in screen pixels; the crop is in image fractions, so
+        // divide by the drawn size of the photo, zoom included.
+        const fit = containFit();
+        const scale = view.current.zoom;
+        setCrop(prev => applyDrag(
+          prev, d.corner,
+          e.clientX - d.startX, e.clientY - d.startY,
+          fit * imgEl.naturalWidth * scale,
+          fit * imgEl.naturalHeight * scale,
+        ));
+        return;
+      }
+
+      const from = panStart.current;
+      if (from) showView(view.current.zoom, { x: from.orig.x + (e.clientX - from.x), y: from.orig.y + (e.clientY - from.y) });
+    }
+
+    function onUp(e: PointerEvent) {
+      pointers.current.delete(e.pointerId);
+      drag.current = null;
+      if (pointers.current.size < 2) pinch.current = null;
+      if (pointers.current.size === 0) panStart.current = null;
+    }
+
+    window.addEventListener("pointerdown", onDown);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-    return () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
   }, []);
 
   // Track the preview's size so the overlay can be re-projected whenever the
@@ -381,6 +472,21 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
     const observer = new ResizeObserver(measure);
     observer.observe(box);
     return () => observer.disconnect();
+  }, [image]);
+
+  // React registers wheel handlers passively, so stopping the dialog from
+  // scrolling underneath a zoom needs a listener of our own.
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    function onWheel(e: WheelEvent) {
+      if (!imgRef.current) return;
+      e.preventDefault();
+      const step = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      showView(view.current.zoom * step, view.current.pan);
+    }
+    box.addEventListener("wheel", onWheel, { passive: false });
+    return () => box.removeEventListener("wheel", onWheel);
   }, [image]);
 
   async function loadImage(file: File) {
@@ -402,6 +508,7 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
       const suggestion = suggestCrop(img);
       const target = clampCrop(suggestion ?? DEFAULT_CROP);
       setCrop(target);
+      resetView();
       setAutoFramed(!!suggestion);
       setHintVisible(true);
       void autoRead(target);
@@ -495,17 +602,31 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
 
   const boxW = boxSize.w;
   const boxH = boxSize.h;
-  // Project the image-space frame into the letterboxed preview. Recomputed on
-  // every render, so a resize moves the box with the photo instead of off it.
-  const preview = clampCrop(
-    dims ? imageRectToBox(dims, boxW, boxH, crop) : { left: crop.left, top: crop.top, width: crop.width, height: crop.height },
-  );
+  // The photo is drawn at its contained size, then scaled about the stage centre
+  // and shifted by the pan, so a point at image fraction (u, v) lands here. The
+  // frame, its corners and the dimming all use this one mapping, which is why
+  // zooming and panning leave the frame sitting exactly on the bars.
+  const fit = dims && boxW > 0 && boxH > 0 ? Math.min(boxW / dims.w, boxH / dims.h) : 1;
+  const drawnW = dims ? dims.w * fit * zoom : boxW;
+  const drawnH = dims ? dims.h * fit * zoom : boxH;
+  const project = (u: number, v: number) => ({
+    x: boxW / 2 + (u - 0.5) * drawnW + pan.x,
+    y: boxH / 2 + (v - 0.5) * drawnH + pan.y,
+  });
+  const frameStart = project(crop.left, crop.top);
+  const frameEnd = project(crop.left + crop.width, crop.top + crop.height);
   const cropPx = {
-    left: preview.left * boxW,
-    top: preview.top * boxH,
-    width: preview.width * boxW,
-    height: preview.height * boxH,
+    left: frameStart.x,
+    top: frameStart.y,
+    width: frameEnd.x - frameStart.x,
+    height: frameEnd.y - frameStart.y,
   };
+  const bandTop = Math.max(0, Math.min(boxH, cropPx.top));
+  const bandBottom = Math.max(0, Math.min(boxH, boxH - (cropPx.top + cropPx.height)));
+  const bandLeft = Math.max(0, Math.min(boxW, cropPx.left));
+  const bandRight = Math.max(0, Math.min(boxW, boxW - (cropPx.left + cropPx.width)));
+  const bandY = Math.max(0, cropPx.top);
+  const bandHeight = Math.max(0, cropPx.height);
   // A phone photo is usually portrait: fill the panel with it instead of
   // squeezing it into a landscape 4:3 box, where the disk ends up thumbnail
   // sized. The ratio is clamped and the height capped so neither extreme can
@@ -519,8 +640,8 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
           <Move size={14} className="mt-0.5 shrink-0 text-primary" />
           <span>
             {autoFramed
-              ? "We framed the barcode for you. Drag anywhere inside the box to move it, or drag a corner dot to tighten it around the bars, then press Read barcode."
-              : "Drag the box over the block of bars on the licence disk, drag a corner dot to tighten it, then press Read barcode."}
+              ? "We framed the barcode for you. Pinch or scroll to zoom in, drag the photo to pan, drag inside the box to move it, or drag a corner dot to tighten it — then press Read barcode."
+              : "Pinch or scroll to zoom in on the block of bars, drag the box over it, pull a corner dot to tighten it — then press Read barcode."}
           </span>
         </div>
       )}
@@ -530,12 +651,34 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
         ref={boxRef}
         className="relative select-none rounded-xl bg-black touch-none"
         style={{ width: boxW, aspectRatio: String(previewAspect), maxHeight: "min(62vh, 520px)", WebkitTouchCallout: "none" }}
+        onDoubleClick={resetView}
       >
-        <img src={previewUrl} draggable={false} className="h-full w-full select-none rounded-xl object-contain" alt="Licence disk" />
-        <div className="pointer-events-none absolute inset-0 rounded-xl" style={{ boxShadow: "inset 0 0 0 9999px rgba(0,0,0,0.62)" }} />
+        {/* Only the photo is clipped: the frame and its corner targets sit above
+            this layer so they stay whole where the crop meets an edge. */}
+        <div className="absolute inset-0 overflow-hidden rounded-xl">
+          <div className="absolute inset-0 flex items-center justify-center">
+            <img
+              src={previewUrl}
+              alt="Licence disk"
+              draggable={false}
+              className="max-w-none select-none"
+              style={dims ? {
+                width: dims.w * fit,
+                height: dims.h * fit,
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              } : { width: "100%" }}
+            />
+          </div>
+          {/* Dim everything except the frame; bands instead of a full overlay so
+              the crop itself stays at full brightness. */}
+          <div className="pointer-events-none absolute inset-x-0 top-0" style={{ height: bandTop, background: "rgba(0,0,0,0.62)" }} />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0" style={{ height: bandBottom, background: "rgba(0,0,0,0.62)" }} />
+          <div className="pointer-events-none absolute left-0" style={{ top: bandY, height: bandHeight, width: bandLeft, background: "rgba(0,0,0,0.62)" }} />
+          <div className="pointer-events-none absolute right-0" style={{ top: bandY, height: bandHeight, width: bandRight, background: "rgba(0,0,0,0.62)" }} />
+        </div>
         <div
           className="absolute cursor-move touch-none rounded-sm border-2 border-solid border-white/80 shadow-sm"
-          style={{ left: `${preview.left * 100}%`, top: `${preview.top * 100}%`, width: `${preview.width * 100}%`, height: `${preview.height * 100}%` }}
+          style={{ left: cropPx.left, top: cropPx.top, width: cropPx.width, height: cropPx.height }}
           onPointerDown={e => pointerDown(e, "move")}
           role="button"
           aria-label="Drag to move the crop"
@@ -568,6 +711,9 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
         <Button variant="outline" disabled={loading} onClick={readWholeImage} className="h-9 rounded-lg px-3 text-xs">
           Read whole image
         </Button>
+        {zoom > 1 && (
+          <Button variant="ghost" onClick={resetView} className="h-9 rounded-lg px-3 text-xs">Reset view</Button>
+        )}
         <Button variant="ghost" onClick={onCloseCrop} className="h-9 rounded-lg px-3 text-xs">Cancel</Button>
       </div>
       {error && <p role="alert" className="rounded-lg bg-destructive/5 p-2.5 text-xs leading-5 text-destructive">{error}</p>}
