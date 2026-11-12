@@ -1,0 +1,15 @@
+# HTTPS front for Workshop Atlas.
+#
+# The licence-disk scanner's live camera needs a secure origin: browsers do not
+# expose getUserMedia on a plain http address. Caddy signs this host with its own
+# local authority, so no public certificate or internet access is needed — but
+# that root certificate has to be trusted once on every device that will scan.
+# See DEPLOYMENT.md, "HTTPS for the licence-disk camera".
+#
+# WORKSHOP_TLS_HOST must be the address people type in: the LAN IP or hostname.
+
+{$WORKSHOP_TLS_HOST:localhost}:{$WORKSHOP_TLS_PORT:3443} {
+	tls internal
+	encode zstd gzip
+	reverse_proxy workshop-atlas:3000
+}

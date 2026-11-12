@@ -236,6 +236,46 @@ Current API details and model support are in [Groq's Browser Search documentatio
 
 When a vehicle has a VIN, its page offers **Search VIN on Partsouq**, which opens `https://partsouq.com/en/search/all?q=VIN` in a new tab. This is a convenience link only: Workshop Atlas does not scrape Partsouq, does not send your credentials, and does not store Partsouq data. Partsouq's own API is partner-only; request access from them if you need automated catalogue data.
 
+## HTTPS for the licence-disk camera
+
+The scanner's live camera needs a secure origin: browsers do not expose
+`getUserMedia` on a plain `http://` address, which is why the dialog offers
+**Choose a photo** instead. Reading a photo works over http — this section is
+only needed for the in-app camera view.
+
+The `tls` service in `docker-compose.yml` puts Caddy in front of the app on port
+`3443` and signs the address with its own local authority.
+
+1. Point it at the address you browse from, then redeploy:
+
+   ```bash
+   WORKSHOP_TLS_HOST=192.168.1.251 docker compose up -d --build
+   ```
+
+2. Export Caddy's root certificate and trust it once on each device that scans:
+
+   ```bash
+   docker compose cp tls:/data/caddy/pki/authorities/local/root.crt ./atlas-caddy-root.crt
+   ```
+
+   - **Windows:** double-click the `.crt` file, choose **Install Certificate**,
+     **Local Machine**, then **Place all certificates in the following store**
+     and pick **Trusted Root Certification Authorities**.
+   - **iPhone or iPad:** send the file to the device and open it to install the
+     profile, then go to **Settings → General → About → Certificate Trust
+     Settings** and switch on full trust for the Caddy root.
+
+3. Open `https://192.168.1.251:3443`. The padlock has to be valid — a certificate
+   warning means the root is not trusted yet, and the browser will still refuse
+   the camera.
+
+Notes:
+
+- Keep the `caddy-data` volume. It holds the authority; recreating it without the
+  volume issues a new certificate and every device must trust the new root.
+- The plain-http port stays available, so the photo path keeps working for
+  anyone who has not installed the certificate.
+
 ## Local preview
 
 In development, local records are stored in `.workshop-data/` at the application root (ignored by Git). Do not put this directory under `public/` or `src/`. The local preview and deployed Docker instance have separate data unless you intentionally restore a complete volume backup.

@@ -34,5 +34,29 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+  tls:
+    # Browsers only offer the camera on a secure origin, so the licence-disk
+    # scanner's live view needs https. Caddy signs this host from its own local
+    # authority; trust that root certificate once per device (DEPLOYMENT.md).
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - workshop-atlas
+    ports:
+      - "${WORKSHOP_TLS_PORT:-3443}:3443"
+    environment:
+      WORKSHOP_TLS_HOST: "${WORKSHOP_TLS_HOST:-localhost}"
+      WORKSHOP_TLS_PORT: "${WORKSHOP_TLS_PORT:-3443}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
+  # Keep this volume: it holds the authority that signs the certificate. Losing
+  # it issues a new one and every device has to trust the new root again.
+  caddy-data:
+  caddy-config:
   workshop-data:
