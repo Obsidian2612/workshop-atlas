@@ -242,6 +242,7 @@ export default function LicenceDiskScanner({ close, onResult }: { close: () => v
   const resultHandler = useRef(onResult);
   resultHandler.current = onResult;
   const [starting, setStarting] = useState(true);
+  const [cameraBlocked, setCameraBlocked] = useState(false);
   const [error, setError] = useState("");
   const [photoCropOpen, setPhotoCropOpen] = useState(false);
 
@@ -249,8 +250,10 @@ export default function LicenceDiskScanner({ close, onResult }: { close: () => v
     let active = true;
     if (!videoEl) return;
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      // Serving over plain http on the shop network is a normal way to run this,
+      // not a fault: offer the photo path instead of an error.
       setStarting(false);
-      setError("The camera needs a secure website address. On the shop PC open Workshop Atlas at https://… or at localhost, or read a photo of the disk instead. On an iPhone over plain http, use the photo option below.");
+      setCameraBlocked(true);
       return;
     }
     const startTimeout = setTimeout(() => {
@@ -304,7 +307,12 @@ export default function LicenceDiskScanner({ close, onResult }: { close: () => v
           <DialogTitle className="flex items-center gap-2 font-heading text-xl font-bold"><Camera size={20} className="text-primary" />Scan licence disk</DialogTitle>
           <DialogDescription>Aim the camera at the PDF417 barcode printed on the vehicle's licence disk, or read a photo of it.</DialogDescription>
         </DialogHeader>
-        {!photoCropOpen && (
+        {!photoCropOpen && cameraBlocked && (
+          <p className="rounded-lg bg-muted p-3 text-xs leading-5 text-muted-foreground">
+            This copy is served over a plain <span className="font-semibold text-foreground">http</span> address, so the browser will not open the camera here. Read a photo of the disk instead — it works on this address, including a photo taken on a phone.
+          </p>
+        )}
+        {!photoCropOpen && !cameraBlocked && (
           <div className="relative mt-2 overflow-hidden rounded-xl bg-black">
             <video ref={setVideoEl} muted playsInline className="aspect-[4/3] w-full object-cover" />
             {!error && <div className="pointer-events-none absolute inset-6 rounded-lg border-2 border-dashed border-white/60" />}
@@ -313,7 +321,7 @@ export default function LicenceDiskScanner({ close, onResult }: { close: () => v
           </div>
         )}
         {error && !photoCropOpen && <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-xs leading-5 text-destructive">{error}</p>}
-        {!error && !photoCropOpen && <p className="text-xs leading-5 text-muted-foreground">Hold the disk steady in good light. Only the barcode is read, and the details it holds are shown for you to check before saving. On a plain http address the camera is blocked — choose a photo instead.</p>}
+        {!error && !cameraBlocked && !photoCropOpen && <p className="text-xs leading-5 text-muted-foreground">Hold the disk steady in good light. Only the barcode is read, and the details it holds are shown for you to check before saving. On a plain http address the camera is blocked — choose a photo instead.</p>}
         <CropModal onCropRead={handleCropResult} onCloseCrop={() => setPhotoCropOpen(false)} />
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Button type="button" variant="outline" onClick={close} className="h-10 rounded-lg px-5">Cancel</Button>
