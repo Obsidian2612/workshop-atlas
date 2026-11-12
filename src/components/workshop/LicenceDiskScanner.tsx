@@ -392,9 +392,11 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
       // The suggestion is already in image fractions, so reloading the photo or
       // resizing the panel keeps the frame snapped to the same bars.
       const suggestion = suggestCrop(img);
-      setCrop(clampCrop(suggestion ?? DEFAULT_CROP));
+      const target = clampCrop(suggestion ?? DEFAULT_CROP);
+      setCrop(target);
       setAutoFramed(!!suggestion);
       setHintVisible(true);
+      void autoRead(target);
     } catch (loadError) {
       setError((loadError as Error).message || "That file could not be opened as an image.");
     } finally {
@@ -403,22 +405,34 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
     }
   }
 
-  async function readCrop() {
+  // Reads straight from the loaded <img>, never from state, so the automatic
+  // attempt that runs inside loadImage() sees the new photo, not the old dims.
+  async function attemptCrop(rect: CropRect): Promise<string | null> {
     const imgEl = imgRef.current;
-    if (!imgEl || !dims) return;
-    // The crop is in image fractions, so no preview geometry is involved.
-    let sx = crop.left * dims.w;
-    let sy = crop.top * dims.h;
-    let sw = crop.width * dims.w;
-    let sh = crop.height * dims.h;
-    sx = Math.max(0, Math.min(dims.w - 1, sx));
-    sy = Math.max(0, Math.min(dims.h - 1, sy));
-    sw = Math.min(dims.w - sx, sw);
-    sh = Math.min(dims.h - sy, sh);
-    if (sw < 8 || sh < 8) { setError("That crop is too small. Drag it around the square barcode."); return; }
+    if (!imgEl) return null;
+    const W = imgEl.naturalWidth, H = imgEl.naturalHeight;
+    let sx = rect.left * W, sy = rect.top * H;
+    let sw = rect.width * W, sh = rect.height * H;
+    sx = Math.max(0, Math.min(W - 1, sx));
+    sy = Math.max(0, Math.min(H - 1, sy));
+    sw = Math.min(W - sx, sw);
+    sh = Math.min(H - sy, sh);
+    if (sw < 8 || sh < 8) return null;
+    return decodeRegion(imgEl, sx, sy, sw, sh, CROP_SCALES);
+  }
+
+  async function attemptWhole(): Promise<string | null> {
+    const imgEl = imgRef.current;
+    if (!imgEl) return null;
+    const W = imgEl.naturalWidth, H = imgEl.naturalHeight;
+    const fit = Math.min(1, 1600 / Math.max(W, H));
+    return decodeRegion(imgEl, 0, 0, W, H, WHOLE_SCALES.map(s => fit * s));
+  }
+
+  async function readCrop() {
     setLoading(true); setError("");
     try {
-      const text = await decodeRegion(imgEl, sx, sy, sw, sh, CROP_SCALES);
+      const text = await attemptCrop(crop);
       if (text) onCropRead({ text });
       else setError("Couldn't read a licence disk barcode in that crop. Drag the crop tighter around the square barcode and try Read barcode again, or use Read whole image.");
     } finally {
@@ -427,14 +441,24 @@ function CropModal({ onCropRead, onCloseCrop }: { onCropRead: (result: { text: s
   }
 
   async function readWholeImage() {
-    const imgEl = imgRef.current;
-    if (!imgEl || !dims) return;
     setLoading(true); setError("");
     try {
-      const fit = Math.min(1, 1600 / Math.max(dims.w, dims.h));
-      const text = await decodeRegion(imgEl, 0, 0, dims.w, dims.h, WHOLE_SCALES.map(s => fit * s));
+      const text = await attemptWhole();
       if (text) onCropRead({ text });
       else setError("Couldn't read a licence disk barcode in the whole photo. Crop the square barcode tighter and try Read barcode again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // A good photo should need no button press: try the framed crop, then the
+  // whole photo, and only fall back to asking when both come up empty.
+  async function autoRead(rect: CropRect) {
+    setLoading(true);
+    try {
+      const text = (await attemptCrop(rect)) ?? (await attemptWhole());
+      if (text) onCropRead({ text });
+      else setError("Couldn't read the barcode straight away. If the box is off the bars, drag it or pull a corner, then press Read barcode.");
     } finally {
       setLoading(false);
     }
