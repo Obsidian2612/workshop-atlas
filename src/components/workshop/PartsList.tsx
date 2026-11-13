@@ -39,7 +39,7 @@ export default function PartsList({ parts, data, view }: { parts: WorkshopRecord
       </button>
       <div className="flex flex-wrap items-center gap-1.5">
         {data.suppliers.length === 0 && <span className="text-[10px] text-muted-foreground">Add a supplier in Settings to search their site</span>}
-        {searchTargets(part).map(target => <a key={target.id} href={supplierSearchUrl(target, query, catalogueQuery)} target="_blank" rel="noreferrer noopener" title={`Search ${target.name} for “${query}”`} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/5">
+        {searchTargets(part).map(target => <a key={target.id} href={supplierSearchUrl(target, query, catalogueQuery, vehicle?.vin)} target="_blank" rel="noreferrer noopener" title={`Search ${target.name} for “${query}”`} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/5">
           <Search size={12} />{target.name}
         </a>)}
         {supplier && <a href={supplier.website} target="_blank" rel="noreferrer noopener" aria-label={`Open ${supplier.name} website`} title={supplier.website} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-background hover:text-primary"><ExternalLink size={14} /></a>}

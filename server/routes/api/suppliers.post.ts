@@ -36,10 +36,13 @@ export default defineHandler(async event => {
     const name = text(body.name, "Supplier name", 100, true);
     if (db.suppliers.some(item => item.name.toLowerCase() === name.toLowerCase() && item.id !== existing?.id)) fail(400, "A supplier with that name is already listed");
     const now = new Date().toISOString();
-    // The optional search address is checked with the placeholder filled in, so a
+    // The optional search address is checked with every placeholder filled in, so a
     // template that cannot produce a working link is refused now rather than later.
     const searchUrl = text(body.searchUrl, "Search address", 1000);
-    if (searchUrl) webAddress(searchUrl.split("{query}").join("brake pads"), "Search address", false);
+    if (searchUrl) {
+      const filled = searchUrl.split("{query}").join("brake pads").split("{vin}").join("WVWZZZAUZFW123794");
+      webAddress(filled, "Search address", false);
+    }
     const supplier = {
       id: existing?.id || randomUUID(), name,
       website: webAddress(body.website, "Website", true), searchUrl,

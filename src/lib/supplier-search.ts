@@ -62,11 +62,11 @@ export function webSearchUrl(query: string) {
  * the number, the part's name or the vehicle's make and model — extra words like
  * the engine make it return nothing. A web search is better with every term.
  */
-export function supplierSearchUrl(supplier: Supplier, query: string, catalogueQuery?: string) {
+export function supplierSearchUrl(supplier: Supplier, query: string, catalogueQuery?: string, vin?: string) {
   const terms = query.trim();
   const lean = (catalogueQuery || "").trim();
   const template = supplier.searchUrl.trim();
-  if (template.includes("{query}")) return template.split("{query}").join(encodeURIComponent(lean || terms));
+  if (template.includes("{query}")) return fillTemplate(template, { query: lean || terms, vin });
   if (lean) {
     const known = knownCatalogueUrl(supplier.website, lean);
     if (known) return known;
@@ -84,8 +84,27 @@ export function supplierSearchUrl(supplier: Supplier, query: string, catalogueQu
 export function supplierVehicleUrl(supplier: Supplier, vehicle?: Vehicle | null) {
   const terms = vehicleQuery(vehicle);
   const template = supplier.searchUrl.trim();
-  if (template.includes("{query}")) return template.split("{query}").join(encodeURIComponent(terms));
-  return supplierSearchUrl(supplier, terms, vehicleCatalogueQuery(vehicle));
+  const vin = vehicleQuery(vehicle, "vin");
+  if (template.includes("{query}")) return fillTemplate(template, { query: terms, vin });
+  return supplierSearchUrl(supplier, terms, vehicleCatalogueQuery(vehicle), vin);
+}
+
+/**
+ * A supplier whose own search takes a VIN gets it filled in; everyone else still
+ * goes through a web search on their site, because their VIN box cannot be opened
+ * from a link.
+ */
+export function supplierVinUrl(supplier: Supplier, vehicle?: Vehicle | null) {
+  const vin = vehicleQuery(vehicle, "vin");
+  const template = supplier.searchUrl.trim();
+  if (vin && template.includes("{vin}")) return fillTemplate(template, { query: vehicleQuery(vehicle), vin });
+  return supplierSearchUrl(supplier, vin, undefined, vin);
+}
+
+function fillTemplate(template: string, values: { query?: string; vin?: string }) {
+  return template
+    .split("{query}").join(encodeURIComponent(values.query || ""))
+    .split("{vin}").join(encodeURIComponent(values.vin || ""));
 }
 
 function siteSearch(supplier: Supplier, terms: string) {
