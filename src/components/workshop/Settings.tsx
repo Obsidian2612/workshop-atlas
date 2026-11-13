@@ -289,6 +289,8 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{supplier.name}</p>
                     <a href={supplier.website} target="_blank" rel="noreferrer noopener" className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-primary">{supplier.website}<ExternalLink size={11} className="shrink-0" /></a>
+                    {supplier.searchUrl && <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground" title={supplier.searchUrl}><span className="font-sans font-semibold">By number:</span> {supplier.searchUrl}</p>}
+                    {supplier.nameSearchUrl && <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground" title={supplier.nameSearchUrl}><span className="font-sans font-semibold">By name:</span> {supplier.nameSearchUrl}</p>}
                   </div>
                   <Badge variant="secondary" className="rounded-md bg-background px-2.5 py-1 text-[10px] font-normal text-muted-foreground">{supplier.searchUrl || supplier.nameSearchUrl ? "Own search link" : knownCatalogueUrl(supplier.website, "test") ? "Parts finder" : "Site search"}</Badge>
                   {editor && <><Button variant="ghost" size="icon" aria-label={`Edit ${supplier.name}`} onClick={() => setSupplierEdit({ supplier })} className="h-8 w-8 rounded-lg text-muted-foreground"><Pencil size={14} /></Button><Button variant="ghost" size="icon" aria-label={`Remove ${supplier.name}`} disabled={supplierBusy} onClick={() => removeSupplier(supplier)} className="h-8 w-8 rounded-lg text-destructive"><Trash2 size={14} /></Button></>}
