@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { RepairSheetOperation, RepairTimePdf, Supplier, User, Workspace } from "@/lib/workshop-types";
+import type { ModelStep, RepairSheetOperation, RepairTimePdf, Supplier, User, Workspace } from "@/lib/workshop-types";
 import { api, download, fileUrl, uploadFile } from "@/lib/workshop-api";
 import { Panel, PanelHeading, Pick, fileSize, prettyDate } from "./primitives";
 import { toast } from "sonner";
@@ -31,6 +31,24 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
   const [supplierEdit, setSupplierEdit] = useState<{ supplier?: Supplier } | null>(null);
   const [supplierBusy, setSupplierBusy] = useState(false);
   const suppliers = data.suppliers || [];
+  const [stepEdit, setStepEdit] = useState<{ step?: ModelStep; make?: string; model?: string } | null>(null);
+  const [stepBusy, setStepBusy] = useState(false);
+  const sharedSteps = data.modelSteps || [];
+  // Every model in the workshop, whether or not its steps have been listed yet.
+  const stepGroups = (() => {
+    const groups = new Map<string, { make: string; model: string; steps: ModelStep[] }>();
+    const ensure = (make: string, model: string) => {
+      const id = `${(make || "").trim().toLowerCase()}|${(model || "").trim().toLowerCase()}`;
+      if (!groups.has(id)) groups.set(id, { make, model, steps: [] });
+      return groups.get(id)!;
+    };
+    for (const vehicle of data.vehicles) ensure(vehicle.make, vehicle.model);
+    for (const step of sharedSteps) ensure(step.make, step.model).steps.push(step);
+    return [...groups.values()].sort((a, b) => `${a.make} ${a.model}`.localeCompare(`${b.make} ${b.model}`));
+  })();
+  const modelOptions = [...new Set(data.vehicles.map(vehicle => `${vehicle.make}|${vehicle.model}`))]
+    .map(value => ({ value, label: value.split("|").join(" ") }))
+    .sort((a, b) => a.label.localeCompare(b.label));
 
   const formatMinutes = (minutes: number) => minutes < 60 ? `${minutes} min` : `${(minutes / 60).toFixed(1)} h ${minutes % 60} min`;
   const operationLabel = (op: RepairSheetOperation) => op.operation.startsWith(op.code) ? op.operation.slice(op.code.length).trim() : op.operation;
@@ -103,6 +121,26 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
 
   function closeReader() { setReader(null); setReadError(""); setApplyBusy(false); }
   function closePreview() { if (preview) URL.revokeObjectURL(preview.url); setPreview(null); }
+
+  async function collectSteps(make: string, model: string) {
+    setStepBusy(true);
+    try {
+      const result = await api<{ added: number; vehicles: number }>("model-steps", { action: "collect", make, model });
+      await refresh();
+      toast.success(result.added
+        ? `Added ${result.added} shared step${result.added === 1 ? "" : "s"} from ${result.vehicles} ${make} ${model}${result.vehicles === 1 ? "" : "s"}`
+        : `No new steps found on your ${make} ${model}${result.vehicles === 1 ? "" : "s"}`);
+    } catch (e) { toast.error((e as Error).message); }
+    finally { setStepBusy(false); }
+  }
+
+  async function removeStep(step: ModelStep) {
+    if (!window.confirm(`Stop sharing “${step.label}” with every ${step.make} ${step.model}? Repair times that already recorded it keep their own copy.`)) return;
+    setStepBusy(true);
+    try { await api("model-steps", { action: "delete", id: step.id }); await refresh(); toast.success(`Removed ${step.label}`); }
+    catch (e) { toast.error((e as Error).message); }
+    finally { setStepBusy(false); }
+  }
 
   async function removeSupplier(supplier: Supplier) {
     if (!window.confirm(`Remove ${supplier.name} from your suppliers? Parts already linked to it keep their number, but lose the link.`)) return;
@@ -194,6 +232,47 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
           {pdfError && <p role="alert" className="mt-3 text-xs text-destructive">{pdfError}</p>}
         </div>
       </Panel>
+
+      <Panel>
+        <PanelHeading title="Shared steps" subtitle="The steps every vehicle of a model is offered, edited in one place" action={editor && modelOptions.length ? <Button onClick={() => setStepEdit({ make: modelOptions[0].value.split("|")[0], model: modelOptions[0].value.split("|")[1] })} className="h-9 rounded-lg text-xs"><Plus size={14} className="mr-1.5" />Add step</Button> : undefined} />
+        <div className="p-6">
+          <p className="text-[11px] leading-5 text-muted-foreground">A step listed here is offered on every repair time for that model, whichever car it is on. Steps recorded on a single vehicle stay with that vehicle — collect them to share them, or remove one here to stop offering it.</p>
+          {stepGroups.length === 0 ? (
+            <p className="mt-4 rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">Add a vehicle first. Its make and model become the models whose steps you can share.</p>
+          ) : (
+            <div className="mt-4 space-y-4">
+              {stepGroups.map(group => (
+                <div key={`${group.make}|${group.model}`} className="rounded-xl border border-border">
+                  <div className="flex flex-wrap items-center gap-2 border-b border-border bg-background/60 px-4 py-2.5">
+                    <h3 className="text-xs font-bold">{group.make} {group.model}</h3>
+                    <Badge variant="secondary" className="rounded-md bg-white px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{group.steps.length} shared step{group.steps.length === 1 ? "" : "s"}</Badge>
+                    {editor && <div className="ml-auto flex items-center gap-1">
+                      <Button variant="ghost" size="sm" disabled={stepBusy} onClick={() => collectSteps(group.make, group.model)} className="h-7 rounded-md px-2 text-[11px] font-semibold text-primary">Collect from vehicles</Button>
+                      <Button variant="ghost" size="icon" aria-label={`Add a shared step for ${group.make} ${group.model}`} onClick={() => setStepEdit({ make: group.make, model: group.model })} className="h-7 w-7 rounded-md text-muted-foreground"><Plus size={13} /></Button>
+                    </div>}
+                  </div>
+                  {group.steps.length === 0 ? (
+                    <p className="px-4 py-3 text-[11px] text-muted-foreground">No shared steps yet. Collect the ones already recorded on this model, or add one by hand.</p>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {[...group.steps].sort((a, b) => a.label.localeCompare(b.label)).map(step => (
+                        <div key={step.id} className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+                          <span className="min-w-0 flex-1 truncate text-xs font-medium">{step.label}</span>
+                          {step.scope && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">{step.scope}</span>}
+                          <span className="w-14 shrink-0 text-right text-[11px] font-semibold text-foreground">{step.minutes ? `${step.minutes} min` : "No time"}</span>
+                          {editor && <><Button variant="ghost" size="icon" aria-label={`Edit ${step.label}`} onClick={() => setStepEdit({ step })} className="h-7 w-7 rounded-md text-muted-foreground"><Pencil size={13} /></Button><Button variant="ghost" size="icon" aria-label={`Remove ${step.label}`} disabled={stepBusy} onClick={() => removeStep(step)} className="h-7 w-7 rounded-md text-destructive"><Trash2 size={13} /></Button></>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Panel>
+
+      {stepEdit && <StepDialog edit={stepEdit} models={modelOptions} close={() => setStepEdit(null)} refresh={refresh} />}
 
       <Panel>
         <PanelHeading title="Parts suppliers" subtitle="Where parts come from, and how to search their catalogues" action={editor ? <Button onClick={() => setSupplierEdit({})} className="h-9 rounded-lg text-xs"><Plus size={14} className="mr-1.5" />Add supplier</Button> : undefined} />
@@ -307,6 +386,40 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
       )}
 
     </div>
+  );
+}
+
+function StepDialog({ edit, models, close, refresh }: { edit: { step?: ModelStep; make?: string; model?: string }; models: { value: string; label: string }[]; close: () => void; refresh: () => Promise<void> }) {
+  const [model, setModel] = useState(edit.step ? `${edit.step.make}|${edit.step.model}` : `${edit.make}|${edit.model}`);
+  const [scope, setScope] = useState(edit.step?.scope || "none");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError("");
+    const [make, modelName] = model.split("|");
+    const fields = Object.fromEntries(new FormData(event.currentTarget));
+    try {
+      await api("model-steps", { ...fields, scope: scope === "none" ? "" : scope, make, model: modelName, id: edit.step?.id || "", action: "save" });
+      await refresh(); close(); toast.success(edit.step ? "Shared step updated" : "Shared step added");
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Dialog open onOpenChange={open => { if (!open && !busy) close(); }}>
+      <DialogContent className="max-w-lg rounded-2xl border-border bg-white p-7 sm:rounded-2xl">
+        <DialogHeader><DialogTitle className="font-heading text-2xl font-bold">{edit.step ? "Edit shared step" : "Share a step."}</DialogTitle><DialogDescription className="pt-2 leading-6">It is offered on every repair time for this model, whichever car it is on.</DialogDescription></DialogHeader>
+        <form onSubmit={submit} className="mt-2 space-y-4">
+          <div><Label className="mb-2 block text-xs font-semibold">Model</Label><Pick label="Model" value={model} onChange={setModel} options={edit.step ? [{ value: `${edit.step.make}|${edit.step.model}`, label: `${edit.step.make} ${edit.step.model}` }, ...models.filter(option => option.value !== `${edit.step!.make}|${edit.step!.model}`)] : models} /></div>
+          <div><Label htmlFor="step-label" className="text-xs font-semibold">Step</Label><Input id="step-label" name="label" required defaultValue={edit.step?.label} placeholder="e.g. Camshaft/valve cover & gasket" maxLength={200} className="mt-2 h-11 rounded-lg" /></div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div><Label className="mb-2 block text-xs font-semibold">Code</Label><Pick label="Step code" value={scope} onChange={setScope} options={[{ value: "none", label: "No code" }, ...["R&I", "S&R", "C&A", "D&R", "Disconnect", "Partially remove"].map(code => ({ value: code, label: code }))]} /></div>
+            <div><Label htmlFor="step-minutes" className="text-xs font-semibold">Minutes</Label><Input id="step-minutes" name="minutes" type="number" min="0" step="1" defaultValue={edit.step?.minutes ?? ""} placeholder="e.g. 40" className="mt-2 h-11 rounded-lg" /></div>
+          </div>
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2"><Button variant="outline" type="button" disabled={busy} onClick={close} className="h-11 rounded-lg">Cancel</Button><Button disabled={busy} className="h-11 rounded-lg px-6">{busy && <Loader2 size={16} className="mr-2 animate-spin" />}Save step</Button></div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -51,12 +51,12 @@ export default function ManualRepairTimes({ vehicle, data, entry, close, refresh
   // this vehicle first, then from the other vehicles of the same make and model, so
   // a step recorded once is offered everywhere that model is worked on. A label
   // appears once; this vehicle's own wording wins over a borrowed one.
-  const sameModel = (other: Vehicle) =>
-    (other.make || "").trim().toLowerCase() === (vehicle.make || "").trim().toLowerCase()
-    && (other.model || "").trim().toLowerCase() === (vehicle.model || "").trim().toLowerCase();
-  const siblings = vehicle.make && vehicle.model ? data.vehicles.filter(other => other.id !== vehicle.id && sameModel(other)) : [];
+  const modelKey = (make: string, model: string) => `${(make || "").trim().toLowerCase()}|${(model || "").trim().toLowerCase()}`;
+  const thisModel = modelKey(vehicle.make, vehicle.model);
+  const siblings = vehicle.make && vehicle.model
+    ? data.vehicles.filter(other => other.id !== vehicle.id && modelKey(other.make, other.model) === thisModel) : [];
   const knownSteps = (() => {
-    const seen = new Map<string, { label: string; scope: string; minutes: number; from: string }>();
+    const seen = new Map<string, { label: string; scope: string; minutes: number; from: string; shared?: boolean }>();
     const collect = (from: string, times?: RepairTimeEntry[]) => {
       for (const time of times || []) for (const step of time.includes || []) {
         const label = step.label.trim();
@@ -65,10 +65,19 @@ export default function ManualRepairTimes({ vehicle, data, entry, close, refresh
       }
     };
     collect("", vehicle.repairTimes);
-    for (const other of siblings) collect([other.make, other.model, other.registration || other.year].filter(Boolean).join(" "), other.repairTimes);
+    // The workshop's own list for this model comes next, so an edit or a prune in
+    // Settings is what every car of the model is offered.
+    for (const shared of data.modelSteps) {
+      if (modelKey(shared.make, shared.model) !== thisModel) continue;
+      const label = shared.label.trim();
+      if (!label || seen.has(label.toLowerCase())) continue;
+      seen.set(label.toLowerCase(), { label, scope: shared.scope || "", minutes: shared.minutes, from: "shared for this model", shared: true });
+    }
+    for (const other of siblings) collect(`from ${[other.make, other.model, other.registration || other.year].filter(Boolean).join(" ")}`, other.repairTimes);
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label));
   })();
-  const borrowedSteps = knownSteps.filter(step => step.from).length;
+  const borrowedSteps = knownSteps.filter(step => step.from && !step.shared).length;
+  const sharedSteps = knownSteps.filter(step => step.shared).length;
   const code = scope === "none" ? "" : scope;
   const includedMinutes = steps.reduce((sum, step) => sum + (Number(step.minutes) || 0), 0);
 
@@ -193,7 +202,7 @@ export default function ManualRepairTimes({ vehicle, data, entry, close, refresh
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-xs font-semibold">Steps this time includes</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">{steps.length ? `${steps.length} step${steps.length === 1 ? "" : "s"} · ${includedMinutes} min total` : "Optional. List the bundled operations and their own codes."}</p><p className="mt-1 text-[11px] text-muted-foreground">{knownSteps.length > 0 ? `Start typing a step to pick one of the ${knownSteps.length} step${knownSteps.length === 1 ? "" : "s"} known for this ${vehicle.make} ${vehicle.model}${borrowedSteps ? `, ${borrowedSteps} of them recorded on another ${vehicle.make} ${vehicle.model}` : ""} — or tick several at once.` : `No steps recorded for this ${vehicle.make} ${vehicle.model} or another of the same model yet. Anything you add here is offered on their repair times too.`}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">{steps.length ? `${steps.length} step${steps.length === 1 ? "" : "s"} · ${includedMinutes} min total` : "Optional. List the bundled operations and their own codes."}</p><p className="mt-1 text-[11px] text-muted-foreground">{knownSteps.length > 0 ? `Start typing a step to pick one of the ${knownSteps.length} step${knownSteps.length === 1 ? "" : "s"} known for this ${vehicle.make} ${vehicle.model}${[borrowedSteps ? `${borrowedSteps} recorded on another ${vehicle.model}` : "", sharedSteps ? `${sharedSteps} shared for the model` : ""].filter(Boolean).length ? ` (${[borrowedSteps ? `${borrowedSteps} recorded on another ${vehicle.model}` : "", sharedSteps ? `${sharedSteps} shared for the model` : ""].filter(Boolean).join(", ")})` : ""} — or tick several at once.` : `No steps recorded for this ${vehicle.make} ${vehicle.model} or another of the same model yet. Anything you add here is offered on their repair times too.`}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {knownSteps.length > 0 && <Popover open={pickerOpen} onOpenChange={open => { setPickerOpen(open); if (!open) setPicked([]); }}>
@@ -207,7 +216,7 @@ export default function ManualRepairTimes({ vehicle, data, entry, close, refresh
                       <span className="mt-0.5" onClick={event => event.stopPropagation()}><Checkbox aria-label={item.label} checked={picked.includes(item.label)} onCheckedChange={checked => setPicked(current => checked ? [...current, item.label] : current.filter(name => name !== item.label))} /></span>
                       <span className="min-w-0">
                         <span className="block truncate text-xs font-medium">{item.label}</span>
-                        <span className="block truncate text-[11px] text-muted-foreground">{item.minutes ? `${item.minutes} min` : "No time yet"}{item.scope ? ` · ${item.scope}` : ""}{item.from ? ` · from ${item.from}` : ""}</span>
+                        <span className="block truncate text-[11px] text-muted-foreground">{item.minutes ? `${item.minutes} min` : "No time yet"}{item.scope ? ` · ${item.scope}` : ""}{item.from ? ` · ${item.from}` : ""}</span>
                       </span>
                     </div>)}
                   </div>

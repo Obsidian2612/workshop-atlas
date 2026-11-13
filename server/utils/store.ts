@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomUUID, randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { createError } from "nitro/h3";
-import type { Activity, Attachment, RepairTimeEntry, RepairTimePdf, Supplier, TorqueSpec, User, Vehicle, WorkshopRecord, Workspace } from "../../src/lib/workshop-types";
+import type { Activity, Attachment, ModelStep, RepairTimeEntry, RepairTimePdf, Supplier, TorqueSpec, User, Vehicle, WorkshopRecord, Workspace } from "../../src/lib/workshop-types";
 
 /*
  * Workshop data lives in one SQLite database (`workshop.sqlite`) next to the private
@@ -24,6 +24,8 @@ export interface Store {
   name: string; vmUrl: string; users: StoredUser[]; sessions: Session[];
   vehicles: Vehicle[]; records: WorkshopRecord[]; attachments: Attachment[]; activity: Activity[];
   suppliers: Supplier[];
+  // Steps shared by every vehicle of a make and model, managed in Settings.
+  modelSteps: ModelStep[];
   repairTimeMinutes: number;
   // Licensed repair-time data keyed by upper-case VIN. Entries carry no source;
   // the source is attached when they are copied onto a vehicle.
@@ -66,6 +68,12 @@ CREATE TABLE IF NOT EXISTS suppliers (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, website TEXT NOT NULL, search_url TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL, created_by TEXT NOT NULL, sort INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS model_steps (
+  id TEXT PRIMARY KEY, make TEXT NOT NULL, model TEXT NOT NULL, label TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT '', minutes INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL, created_by TEXT NOT NULL, sort INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS model_steps_model ON model_steps(make, model);
 CREATE TABLE IF NOT EXISTS attachments (
   id TEXT PRIMARY KEY, record_id TEXT NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL, size INTEGER NOT NULL,
   created_at TEXT NOT NULL, created_by TEXT NOT NULL, sort INTEGER NOT NULL
@@ -96,7 +104,7 @@ function ensureColumn(db: DatabaseSync, table: string, column: string, definitio
 function emptyStore(): Store {
   return {
     name: "My workshop", vmUrl: "", users: [], sessions: [], vehicles: [], records: [],
-    attachments: [], activity: [], suppliers: [], repairTimeMinutes: 0, repairTimesByVin: {}, repairTimePdfs: [],
+    attachments: [], activity: [], suppliers: [], modelSteps: [], repairTimeMinutes: 0, repairTimesByVin: {}, repairTimePdfs: [],
   };
 }
 
@@ -230,6 +238,11 @@ function readStore(db: DatabaseSync): Store {
     id: String(row.id), name: String(row.name), website: String(row.website),
     searchUrl: String(row.search_url ?? ""), createdAt: String(row.created_at), createdBy: String(row.created_by),
   }));
+  store.modelSteps = (db.prepare("SELECT * FROM model_steps ORDER BY sort DESC").all() as unknown as Row[]).map(row => ({
+    id: String(row.id), make: String(row.make), model: String(row.model), label: String(row.label),
+    scope: String(row.scope ?? ""), minutes: Number(row.minutes) || 0,
+    createdAt: String(row.created_at), createdBy: String(row.created_by),
+  }));
   store.attachments = (db.prepare("SELECT * FROM attachments ORDER BY sort DESC").all() as unknown as Row[]).map(row => ({
     id: String(row.id), recordId: String(row.record_id), name: String(row.name), type: String(row.type),
     size: Number(row.size), createdAt: String(row.created_at), createdBy: String(row.created_by),
@@ -260,7 +273,7 @@ function sortValues(rows: { id: string }[]) {
   return values;
 }
 
-function removeMissing(db: DatabaseSync, table: "users" | "vehicles" | "records" | "attachments" | "activity" | "repair_time_pdfs" | "suppliers", before: { id: string }[], after: { id: string }[]) {
+function removeMissing(db: DatabaseSync, table: "users" | "vehicles" | "records" | "attachments" | "activity" | "repair_time_pdfs" | "suppliers" | "model_steps", before: { id: string }[], after: { id: string }[]) {
   const kept = new Set(after.map(row => row.id));
   const statement = db.prepare(`DELETE FROM ${table} WHERE id = ?`);
   for (const row of before) if (!kept.has(row.id)) statement.run(row.id);
@@ -408,6 +421,30 @@ function writeSuppliers(db: DatabaseSync, before: Store, after: Store) {
   }
 }
 
+const modelStepKey = (step: ModelStep) => JSON.stringify([step.make, step.model, step.label, step.scope,
+  step.minutes, step.createdAt, step.createdBy]);
+
+function writeModelSteps(db: DatabaseSync, before: Store, after: Store) {
+  removeMissing(db, "model_steps", before.modelSteps, after.modelSteps);
+  const upsert = db.prepare(`INSERT INTO model_steps (id, make, model, label, scope, minutes, created_at, created_by, sort)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET make = excluded.make, model = excluded.model, label = excluded.label,
+      scope = excluded.scope, minutes = excluded.minutes, created_at = excluded.created_at,
+      created_by = excluded.created_by, sort = excluded.sort`);
+  const move = db.prepare("UPDATE model_steps SET sort = ? WHERE id = ?");
+  const prior = new Map(before.modelSteps.map(step => [step.id, step]));
+  const priorSort = sortValues(before.modelSteps);
+  const nextSort = sortValues(after.modelSteps);
+  for (const step of after.modelSteps) {
+    const previous = prior.get(step.id);
+    const sort = nextSort.get(step.id) ?? 0;
+    if (!previous || modelStepKey(previous) !== modelStepKey(step)) {
+      upsert.run(step.id, step.make, step.model, step.label, step.scope, step.minutes,
+        step.createdAt, step.createdBy, sort);
+    } else if (priorSort.get(step.id) !== sort) move.run(sort, step.id);
+  }
+}
+
 const activityKey = (entry: Activity) => JSON.stringify([entry.text, entry.actor, entry.at]);
 
 function writeActivity(db: DatabaseSync, before: Store, after: Store) {
@@ -481,6 +518,7 @@ function writeStore(db: DatabaseSync, before: Store, after: Store) {
   writeRecords(db, before, after);
   writeAttachments(db, before, after);
   writeSuppliers(db, before, after);
+  writeModelSteps(db, before, after);
   writeActivity(db, before, after);
   writeRepairTimePdfs(db, before, after);
   writeRepairTimes(db, before, after);
@@ -572,6 +610,7 @@ export function workspace(db: Store, user?: StoredUser): Workspace {
     vehicles: user ? db.vehicles : [], records: user ? db.records : [],
     attachments: user ? db.attachments : [], activity: user ? db.activity : [],
     suppliers: user ? db.suppliers : [],
+    modelSteps: user ? db.modelSteps : [],
     repairTimeMinutes: db.repairTimeMinutes || 0,
     repairTimePdfs: user?.role === "admin" ? (db.repairTimePdfs || []) : [],
     users: user?.role === "admin" ? db.users.map(publicUser) : [],

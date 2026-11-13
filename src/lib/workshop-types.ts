@@ -68,6 +68,11 @@ export interface WorkshopRecord {
   /** Parts only: the number to order, who makes it and where it is bought. */
   partNumber?: string; partMake?: string; supplierId?: string;
 }
+/** A step shared by every vehicle of one make and model, kept in one list. */
+export interface ModelStep {
+  id: string; make: string; model: string; label: string; scope: string; minutes: number;
+  createdAt: string; createdBy: string;
+}
 /** A parts supplier: its website, plus an optional search URL for its own catalogue. */
 export interface Supplier {
   id: string; name: string; website: string;
@@ -85,6 +90,7 @@ export interface Workspace {
   setupRequired: boolean; user: User | null; name: string; vmUrl: string;
   vehicles: Vehicle[]; records: WorkshopRecord[]; attachments: Attachment[]; activity: Activity[]; users: User[];
   suppliers: Supplier[];
+  modelSteps: ModelStep[];
   repairTimeMinutes: number;
   // Uploaded repair-time sheets (PDF prints). Only administrators receive them.
   repairTimePdfs?: RepairTimePdf[];
@@ -98,6 +104,6 @@ export const sectionTitles: Record<Section, string> = {
 };
 export const emptyWorkspace: Workspace = {
   setupRequired: false, user: null, name: "My workshop", vmUrl: "",
-  vehicles: [], records: [], attachments: [], activity: [], users: [], suppliers: [],
+  vehicles: [], records: [], attachments: [], activity: [], users: [], suppliers: [], modelSteps: [],
   repairTimeMinutes: 0
 };
