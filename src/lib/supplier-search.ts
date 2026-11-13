@@ -19,6 +19,9 @@ const knownCatalogues: { host: RegExp; label: string; template: string }[] = [
   // AutoZone South Africa takes the keyword in `k`; the empty `q` is part of the
   // address — without it the result list comes back empty.
   { host: /(^|\.)autozoneonline\.co\.za$/i, label: "AutoZone search", template: "https://www.autozoneonline.co.za/search/text/input?q=&k={query}" },
+  // Spares Direct is a WooCommerce shop: `post_type=product` keeps the results to
+  // parts, and their titles carry OE numbers, so a number finds the part.
+  { host: /(^|\.)sparesdirect\.co\.za$/i, label: "Spares Direct search", template: "https://sparesdirect.co.za/?s={query}&post_type=product" },
 ];
 
 function knownCatalogue(website: string) {
