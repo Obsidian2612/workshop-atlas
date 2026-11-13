@@ -45,8 +45,19 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
   const [csvError, setCsvError] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
-  // Other known times on this vehicle, offered as suggestions for step rows.
-  const knownTimes = (vehicle.repairTimes || []).filter(item => item.operation !== (entry?.operation || ""));
+  // The same few steps (a valve cover, a coolant drain) recur across many jobs, so
+  // the suggestions for a step row come from the steps this vehicle already knows
+  // rather than from its operation names. A label appears once, first one wins.
+  const knownSteps = (() => {
+    const seen = new Map<string, { label: string; scope: string; minutes: number }>();
+    for (const time of vehicle.repairTimes || []) {
+      for (const step of time.includes || []) {
+        const label = step.label.trim();
+        if (label && !seen.has(label.toLowerCase())) seen.set(label.toLowerCase(), { label, scope: step.scope || "", minutes: step.minutes });
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label));
+  })();
   const code = scope === "none" ? "" : scope;
   const includedMinutes = steps.reduce((sum, step) => sum + (Number(step.minutes) || 0), 0);
 
@@ -54,24 +65,24 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
     setSteps(current => current.map((step, at) => at === index ? { ...step, ...patch } : step));
   }
 
-  // Choosing a known repair time fills in its code and time, unless already typed.
+  // Choosing an existing step fills in its code and time, unless already typed.
   function changeStepLabel(index: number, label: string) {
-    const match = knownTimes.find(item => item.operation.toLowerCase() === label.trim().toLowerCase());
+    const match = knownSteps.find(item => item.label.toLowerCase() === label.trim().toLowerCase());
     setSteps(current => current.map((step, at) => {
       if (at !== index) return step;
       if (!match) return { ...step, label };
-      return { ...step, label, scope: step.scope === "none" ? match.scope || "none" : step.scope, minutes: step.minutes || String(match.minutes) };
+      return { ...step, label, scope: step.scope === "none" ? match.scope || "none" : step.scope, minutes: step.minutes || (match.minutes ? String(match.minutes) : "") };
     }));
   }
 
-  // Several known times can become steps at once; names already in the list are skipped.
+  // Several known steps can become rows at once; labels already in the list are skipped.
   function addPickedSteps() {
     setSteps(current => {
       const have = new Set(current.map(step => step.label.trim().toLowerCase()));
-      const added = picked.flatMap(name => {
-        const match = knownTimes.find(item => item.operation === name);
-        if (!match || have.has(match.operation.trim().toLowerCase())) return [];
-        return [{ label: match.operation, scope: match.scope || "none", minutes: String(match.minutes) }];
+      const added = picked.flatMap(label => {
+        const match = knownSteps.find(item => item.label === label);
+        if (!match || have.has(match.label.trim().toLowerCase())) return [];
+        return [{ label: match.label, scope: match.scope || "none", minutes: match.minutes ? String(match.minutes) : "" }];
       });
       return [...current, ...added];
     });
@@ -171,26 +182,26 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-xs font-semibold">Steps this time includes</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">{steps.length ? `${steps.length} step${steps.length === 1 ? "" : "s"} · ${includedMinutes} min total` : "Optional. List the bundled operations and their own codes."}</p>{knownTimes.length > 0 && <p className="mt-1 text-[11px] text-muted-foreground">Start typing a step to pick one of this vehicle's {knownTimes.length} known repair times, or tick several at once.</p>}
+              <p className="mt-1 text-[11px] text-muted-foreground">{steps.length ? `${steps.length} step${steps.length === 1 ? "" : "s"} · ${includedMinutes} min total` : "Optional. List the bundled operations and their own codes."}</p><p className="mt-1 text-[11px] text-muted-foreground">{knownSteps.length > 0 ? `Start typing a step to pick one of the ${knownSteps.length} step${knownSteps.length === 1 ? "" : "s"} this vehicle already uses, or tick several at once.` : "No steps recorded for this vehicle yet. Anything you add here becomes a suggestion on its other repair times."}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {knownTimes.length > 0 && <Popover open={pickerOpen} onOpenChange={open => { setPickerOpen(open); if (!open) setPicked([]); }}>
+              {knownSteps.length > 0 && <Popover open={pickerOpen} onOpenChange={open => { setPickerOpen(open); if (!open) setPicked([]); }}>
                 <PopoverTrigger asChild>
-                  <Button type="button" variant="outline" className="h-9 rounded-lg text-xs"><ChevronDown size={14} className="mr-1.5" />Pick known times</Button>
+                  <Button type="button" variant="outline" className="h-9 rounded-lg text-xs"><ChevronDown size={14} className="mr-1.5" />Pick known steps</Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-80 rounded-xl border-border bg-white p-0 shadow-xl">
-                  <p className="border-b border-border px-4 py-3 text-xs font-semibold">Add this vehicle's known repair times as steps</p>
+                  <p className="border-b border-border px-4 py-3 text-xs font-semibold">Add steps this vehicle already uses</p>
                   <div className="max-h-64 overflow-y-auto p-2">
-                    {knownTimes.map(item => <div key={item.operation} onClick={() => setPicked(current => current.includes(item.operation) ? current.filter(name => name !== item.operation) : [...current, item.operation])} className="flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-muted/60">
-                      <span className="mt-0.5" onClick={event => event.stopPropagation()}><Checkbox aria-label={item.operation} checked={picked.includes(item.operation)} onCheckedChange={checked => setPicked(current => checked ? [...current, item.operation] : current.filter(name => name !== item.operation))} /></span>
+                    {knownSteps.map(item => <div key={item.label} onClick={() => setPicked(current => current.includes(item.label) ? current.filter(name => name !== item.label) : [...current, item.label])} className="flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-muted/60">
+                      <span className="mt-0.5" onClick={event => event.stopPropagation()}><Checkbox aria-label={item.label} checked={picked.includes(item.label)} onCheckedChange={checked => setPicked(current => checked ? [...current, item.label] : current.filter(name => name !== item.label))} /></span>
                       <span className="min-w-0">
-                        <span className="block truncate text-xs font-medium">{item.operation}</span>
-                        <span className="block text-[11px] text-muted-foreground">{item.minutes} min{item.scope ? ` · ${item.scope}` : ""}</span>
+                        <span className="block truncate text-xs font-medium">{item.label}</span>
+                        <span className="block text-[11px] text-muted-foreground">{item.minutes ? `${item.minutes} min` : "No time yet"}{item.scope ? ` · ${item.scope}` : ""}</span>
                       </span>
                     </div>)}
                   </div>
                   <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2.5">
-                    <button type="button" onClick={() => setPicked(knownTimes.map(item => item.operation))} className="text-[11px] font-semibold text-primary hover:underline">Select all</button>
+                    <button type="button" onClick={() => setPicked(knownSteps.map(item => item.label))} className="text-[11px] font-semibold text-primary hover:underline">Select all</button>
                     <Button type="button" disabled={!picked.length} onClick={addPickedSteps} className="h-8 rounded-lg px-3 text-xs">Add {picked.length || ""} step{picked.length === 1 ? "" : "s"}</Button>
                   </div>
                 </PopoverContent>
@@ -200,7 +211,7 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
           </div>
 
           {steps.length > 0 && <div className="mt-3 space-y-2">{steps.map((step, index) => <div key={index} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_5.5rem_2.5rem]">
-            <Input aria-label={`Step ${index + 1} description`} list="known-repair-times" value={step.label} onChange={event => changeStepLabel(index, event.target.value)} placeholder="e.g. Camshaft/valve cover & gasket" maxLength={200} className="h-10 rounded-lg border-border bg-white text-xs" />
+            <Input aria-label={`Step ${index + 1} description`} list="known-steps" value={step.label} onChange={event => changeStepLabel(index, event.target.value)} placeholder="e.g. Camshaft/valve cover & gasket" maxLength={200} className="h-10 rounded-lg border-border bg-white text-xs" />
             <Pick label={`Step ${index + 1} code`} value={step.scope} onChange={value => changeStep(index, { scope: value })} options={scopeOptions} />
             <Input aria-label={`Step ${index + 1} minutes`} type="number" min="0" step="1" value={step.minutes} onChange={event => changeStep(index, { minutes: event.target.value })} placeholder="min" className="h-10 rounded-lg border-border bg-white text-xs" />
             <Button type="button" aria-label={`Remove step ${index + 1}`} variant="ghost" size="icon" onClick={() => setSteps(current => current.filter((_, at) => at !== index))} className="h-10 w-10 rounded-lg text-destructive"><Trash2 size={14} /></Button>
@@ -212,7 +223,7 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
           <Textarea id="notes" value={notes} onChange={event => setNotes(event.target.value)} maxLength={500} placeholder="Where the time came from, what it assumes, anything the next reader needs." className="mt-2 min-h-24 rounded-xl border-border bg-white text-sm leading-6" />
         </div>
 
-        <datalist id="known-repair-times">{knownTimes.map(item => <option key={item.operation} value={item.operation}>{`${item.minutes} min${item.scope ? ` · ${item.scope}` : ""}`}</option>)}</datalist>
+        <datalist id="known-steps">{knownSteps.map(item => <option key={item.label} value={item.label}>{`${item.minutes ? `${item.minutes} min` : "No time yet"}${item.scope ? ` · ${item.scope}` : ""}`}</option>)}</datalist>
 
         <div className="rounded-xl border border-dashed border-border p-4">
           <p className="text-xs font-semibold">Add several times from CSV</p>
