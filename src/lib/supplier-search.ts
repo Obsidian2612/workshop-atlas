@@ -13,19 +13,29 @@ import type { Supplier, Vehicle, WorkshopRecord } from "./workshop-types";
  * Those patterns are checked in the workspace against the real site, so a shop
  * gets a direct search without having to work the link out by hand.
  */
-const knownCatalogues: { host: RegExp; search: (query: string) => string }[] = [
+const knownCatalogues: { host: RegExp; label: string; template: string }[] = [
   // Goldwagen's Parts Finder searches OE numbers, GW numbers and descriptions.
-  { host: /(^|\.)goldwagen\.com$/i, search: query => `https://partsfinder.goldwagen.com/PartsFinder/Index?stext=${encodeURIComponent(query)}` },
+  { host: /(^|\.)goldwagen\.com$/i, label: "Goldwagen Parts Finder", template: "https://partsfinder.goldwagen.com/PartsFinder/Index?stext={query}" },
   // AutoZone South Africa takes the keyword in `k`; the empty `q` is part of the
   // address — without it the result list comes back empty.
-  { host: /(^|\.)autozoneonline\.co\.za$/i, search: query => `https://www.autozoneonline.co.za/search/text/input?q=&k=${encodeURIComponent(query)}` },
+  { host: /(^|\.)autozoneonline\.co\.za$/i, label: "AutoZone search", template: "https://www.autozoneonline.co.za/search/text/input?q=&k={query}" },
 ];
 
-export function knownCatalogueUrl(website: string, query: string): string | undefined {
+function knownCatalogue(website: string) {
   let host = "";
   try { host = new URL(website).hostname; } catch { return undefined; }
-  const catalogue = knownCatalogues.find(entry => entry.host.test(host));
-  return catalogue ? catalogue.search(query.trim()) : undefined;
+  return knownCatalogues.find(entry => entry.host.test(host));
+}
+
+export function knownCatalogueUrl(website: string, query: string): string | undefined {
+  const catalogue = knownCatalogue(website);
+  return catalogue ? catalogue.template.split("{query}").join(encodeURIComponent(query.trim())) : undefined;
+}
+
+/** The address a shop can store instead of working it out from the supplier's own results. */
+export function knownCatalogueTemplate(website: string): { label: string; template: string } | undefined {
+  const catalogue = knownCatalogue(website);
+  return catalogue ? { label: catalogue.label, template: catalogue.template } : undefined;
 }
 
 export function vehicleQuery(vehicle?: Vehicle | null, mode: "vin" | "identity" = "identity") {

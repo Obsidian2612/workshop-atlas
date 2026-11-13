@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { ModelStep, RepairSheetOperation, RepairTimePdf, Supplier, User, Workspace } from "@/lib/workshop-types";
 import { api, download, fileUrl, uploadFile } from "@/lib/workshop-api";
-import { knownCatalogueUrl } from "@/lib/supplier-search";
+import { knownCatalogueTemplate, knownCatalogueUrl } from "@/lib/supplier-search";
 import { Panel, PanelHeading, Pick, fileSize, prettyDate } from "./primitives";
 import { toast } from "sonner";
 
@@ -427,6 +427,10 @@ function StepDialog({ edit, models, close, refresh }: { edit: { step?: ModelStep
 function SupplierDialog({ supplier, close, refresh }: { supplier?: Supplier; close: () => void; refresh: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [website, setWebsite] = useState(supplier?.website || "");
+  const [searchUrl, setSearchUrl] = useState(supplier?.searchUrl || "");
+  // A supplier we already know the way around: their address can be filled in for the shop.
+  const known = knownCatalogueTemplate(website);
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError("");
     try {
@@ -441,8 +445,8 @@ function SupplierDialog({ supplier, close, refresh }: { supplier?: Supplier; clo
         <DialogHeader><DialogTitle className="font-heading text-2xl font-bold">{supplier ? "Edit supplier" : "Add a supplier."}</DialogTitle><DialogDescription className="pt-2 leading-6">The website is where the part is ordered. The search address is optional and only decides how the part is looked up.</DialogDescription></DialogHeader>
         <form onSubmit={submit} className="mt-2 space-y-4">
           <div><Label htmlFor="supplier-name" className="text-xs font-semibold">Supplier name</Label><Input id="supplier-name" name="name" required defaultValue={supplier?.name} placeholder="e.g. Goldwagen, Autozone" maxLength={100} className="mt-2 h-11 rounded-lg" /></div>
-          <div><Label htmlFor="supplier-website" className="text-xs font-semibold">Website</Label><Input id="supplier-website" name="website" type="url" required defaultValue={supplier?.website} placeholder="https://www.example.co.za" maxLength={1000} className="mt-2 h-11 rounded-lg" /></div>
-          <div><Label htmlFor="supplier-search" className="text-xs font-semibold">Catalogue search address <span className="font-normal text-muted-foreground">(optional)</span></Label><Input id="supplier-search" name="searchUrl" defaultValue={supplier?.searchUrl} placeholder="https://www.example.co.za/search?q={query}" maxLength={1000} className="mt-2 h-11 rounded-lg font-mono text-xs" /><p className="mt-2 text-[11px] leading-5 text-muted-foreground">Paste the address from the supplier's own search results and replace the words you typed with <code className="rounded bg-background px-1 font-mono">{"{query}"}</code>, and a vehicle's VIN in that address with <code className="rounded bg-background px-1 font-mono">{"{vin}"}</code>. Leave it empty and a known catalogue is searched directly, otherwise their site through a web search.</p></div>
+          <div><Label htmlFor="supplier-website" className="text-xs font-semibold">Website</Label><Input id="supplier-website" name="website" type="url" required value={website} onChange={event => setWebsite(event.target.value)} placeholder="https://www.example.co.za" maxLength={1000} className="mt-2 h-11 rounded-lg" /></div>
+          <div><Label htmlFor="supplier-search" className="text-xs font-semibold">Catalogue search address <span className="font-normal text-muted-foreground">(optional)</span></Label><Input id="supplier-search" name="searchUrl" value={searchUrl} onChange={event => setSearchUrl(event.target.value)} placeholder="https://www.example.co.za/search?q={query}" maxLength={1000} className="mt-2 h-11 rounded-lg font-mono text-xs" />{known && searchUrl.trim() !== known.template && <button type="button" onClick={() => setSearchUrl(known.template)} className="mt-1.5 text-[11px] font-semibold text-primary hover:underline">Fill in the {known.label} address</button>}<p className="mt-2 text-[11px] leading-5 text-muted-foreground">Paste the address from the supplier's own search results and replace the words you typed with <code className="rounded bg-background px-1 font-mono">{"{query}"}</code>, and a vehicle's VIN in that address with <code className="rounded bg-background px-1 font-mono">{"{vin}"}</code>. Leave it empty and a known catalogue is searched directly, otherwise their site through a web search.</p></div>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2"><Button variant="outline" type="button" disabled={busy} onClick={close} className="h-11 rounded-lg">Cancel</Button><Button disabled={busy} className="h-11 rounded-lg px-6">{busy && <Loader2 size={16} className="mr-2 animate-spin" />}Save supplier</Button></div>
         </form>
