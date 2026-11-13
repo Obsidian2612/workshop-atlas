@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, CarFront, BookOpen, StickyNote, History, FolderOpen, Cable, Settings2, ChevronDown, ArrowUpRight, ShieldCheck, X, Wrench } from "lucide-react";
+import { LayoutDashboard, CarFront, BookOpen, StickyNote, History, Package, FolderOpen, Cable, Settings2, ChevronDown, ArrowUpRight, ShieldCheck, X, Wrench } from "lucide-react";
 import type { Workspace } from "@/lib/workshop-types";
 import { cn } from "@/lib/utils";
 export const navigation = [
@@ -8,6 +8,7 @@ export const navigation = [
   { path: "/procedures", title: "Service procedures", icon: BookOpen },
   { path: "/notes", title: "Repair notes", icon: StickyNote },
   { path: "/history", title: "Service history", icon: History },
+  { path: "/parts", title: "Parts & suppliers", icon: Package },
   { path: "/attachments", title: "Documents & photos", icon: FolderOpen },
 ];
 export default function Sidebar({ data, open, close, onAuth }: { data: Workspace; open: boolean; close: () => void; onAuth: () => void }) {

@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { Database, Download, ExternalLink, KeyRound, Loader2, Pencil, Plus, ShieldCheck, Trash2, Users, Server, LockKeyhole, FileText, Upload, Eye, ListChecks } from "lucide-react";
+import { Database, Download, ExternalLink, KeyRound, Loader2, Pencil, Plus, ShieldCheck, Store, Trash2, Users, Server, LockKeyhole, FileText, Upload, Eye, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { RepairSheetOperation, RepairTimePdf, User, Workspace } from "@/lib/workshop-types";
+import type { RepairSheetOperation, RepairTimePdf, Supplier, User, Workspace } from "@/lib/workshop-types";
 import { api, download, fileUrl, uploadFile } from "@/lib/workshop-api";
 import { Panel, PanelHeading, Pick, fileSize, prettyDate } from "./primitives";
 import { toast } from "sonner";
@@ -28,6 +28,9 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
   const [applyBusy, setApplyBusy] = useState(false);
   const [applyVehicle, setApplyVehicle] = useState("none");
   const [backupBusy, setBackupBusy] = useState(false);
+  const [supplierEdit, setSupplierEdit] = useState<{ supplier?: Supplier } | null>(null);
+  const [supplierBusy, setSupplierBusy] = useState(false);
+  const suppliers = data.suppliers || [];
 
   const formatMinutes = (minutes: number) => minutes < 60 ? `${minutes} min` : `${(minutes / 60).toFixed(1)} h ${minutes % 60} min`;
   const operationLabel = (op: RepairSheetOperation) => op.operation.startsWith(op.code) ? op.operation.slice(op.code.length).trim() : op.operation;
@@ -100,6 +103,14 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
 
   function closeReader() { setReader(null); setReadError(""); setApplyBusy(false); }
   function closePreview() { if (preview) URL.revokeObjectURL(preview.url); setPreview(null); }
+
+  async function removeSupplier(supplier: Supplier) {
+    if (!window.confirm(`Remove ${supplier.name} from your suppliers? Parts already linked to it keep their number, but lose the link.`)) return;
+    setSupplierBusy(true);
+    try { await api("suppliers", { action: "delete", id: supplier.id }); await refresh(); toast.success(`Removed ${supplier.name}`); }
+    catch (e) { toast.error((e as Error).message); }
+    finally { setSupplierBusy(false); }
+  }
 
   async function removePdf(sheet: RepairTimePdf) {
     if (!window.confirm(`Delete the repair-time sheet “${sheet.name}”?`)) return;
@@ -183,6 +194,32 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
           {pdfError && <p role="alert" className="mt-3 text-xs text-destructive">{pdfError}</p>}
         </div>
       </Panel>
+
+      <Panel>
+        <PanelHeading title="Parts suppliers" subtitle="Where parts come from, and how to search their catalogues" action={editor ? <Button onClick={() => setSupplierEdit({})} className="h-9 rounded-lg text-xs"><Plus size={14} className="mr-1.5" />Add supplier</Button> : undefined} />
+        <div className="p-6">
+          <p className="text-[11px] leading-5 text-muted-foreground">Each supplier's website is kept here so a part can be ordered from the same place it was looked up. Add a catalogue search address if the supplier's own search accepts a query in the link; otherwise the search is narrowed to their site automatically.</p>
+          {suppliers.length === 0 ? (
+            <p className="mt-4 rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">No suppliers yet. Add the shops you buy from to search their sites from a part or a vehicle.</p>
+          ) : (
+            <div className="mt-4 divide-y divide-border">
+              {suppliers.map(supplier => (
+                <div key={supplier.id} className="flex flex-wrap items-center gap-3 py-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Store size={17} /></span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{supplier.name}</p>
+                    <a href={supplier.website} target="_blank" rel="noreferrer noopener" className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-primary">{supplier.website}<ExternalLink size={11} className="shrink-0" /></a>
+                  </div>
+                  <Badge variant="secondary" className="rounded-md bg-background px-2.5 py-1 text-[10px] font-normal text-muted-foreground">{supplier.searchUrl ? "Own search link" : "Site search"}</Badge>
+                  {editor && <><Button variant="ghost" size="icon" aria-label={`Edit ${supplier.name}`} onClick={() => setSupplierEdit({ supplier })} className="h-8 w-8 rounded-lg text-muted-foreground"><Pencil size={14} /></Button><Button variant="ghost" size="icon" aria-label={`Remove ${supplier.name}`} disabled={supplierBusy} onClick={() => removeSupplier(supplier)} className="h-8 w-8 rounded-lg text-destructive"><Trash2 size={14} /></Button></>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Panel>
+
+      {supplierEdit && <SupplierDialog supplier={supplierEdit.supplier} close={() => setSupplierEdit(null)} refresh={refresh} />}
 
       <Panel>
         <PanelHeading title="Team & permissions" subtitle="Give each terminal's user the right level of access" action={editor ? <Button onClick={() => setMember({})} className="h-9 rounded-lg text-xs"><Plus size={14} className="mr-1.5" />Add member</Button> : undefined} />
@@ -270,6 +307,33 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
       )}
 
     </div>
+  );
+}
+
+function SupplierDialog({ supplier, close, refresh }: { supplier?: Supplier; close: () => void; refresh: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      await api("suppliers", { ...Object.fromEntries(new FormData(event.currentTarget)), id: supplier?.id || "", action: "save" });
+      await refresh(); close(); toast.success(supplier ? "Supplier updated" : "Supplier added");
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Dialog open onOpenChange={open => { if (!open && !busy) close(); }}>
+      <DialogContent className="max-w-lg rounded-2xl border-border bg-white p-7 sm:rounded-2xl">
+        <DialogHeader><DialogTitle className="font-heading text-2xl font-bold">{supplier ? "Edit supplier" : "Add a supplier."}</DialogTitle><DialogDescription className="pt-2 leading-6">The website is where the part is ordered. The search address is optional and only decides how the part is looked up.</DialogDescription></DialogHeader>
+        <form onSubmit={submit} className="mt-2 space-y-4">
+          <div><Label htmlFor="supplier-name" className="text-xs font-semibold">Supplier name</Label><Input id="supplier-name" name="name" required defaultValue={supplier?.name} placeholder="e.g. Goldwagen, Autozone" maxLength={100} className="mt-2 h-11 rounded-lg" /></div>
+          <div><Label htmlFor="supplier-website" className="text-xs font-semibold">Website</Label><Input id="supplier-website" name="website" type="url" required defaultValue={supplier?.website} placeholder="https://www.example.co.za" maxLength={1000} className="mt-2 h-11 rounded-lg" /></div>
+          <div><Label htmlFor="supplier-search" className="text-xs font-semibold">Catalogue search address <span className="font-normal text-muted-foreground">(optional)</span></Label><Input id="supplier-search" name="searchUrl" defaultValue={supplier?.searchUrl} placeholder="https://www.example.co.za/search?q={query}" maxLength={1000} className="mt-2 h-11 rounded-lg font-mono text-xs" /><p className="mt-2 text-[11px] leading-5 text-muted-foreground">Paste the address from the supplier's own search results and replace the words you typed with <code className="rounded bg-background px-1 font-mono">{"{query}"}</code>. Leave it empty to search their site through a web search instead.</p></div>
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2"><Button variant="outline" type="button" disabled={busy} onClick={close} className="h-11 rounded-lg">Cancel</Button><Button disabled={busy} className="h-11 rounded-lg px-6">{busy && <Loader2 size={16} className="mr-2 animate-spin" />}Save supplier</Button></div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

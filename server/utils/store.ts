@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomUUID, randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { createError } from "nitro/h3";
-import type { Activity, Attachment, RepairTimeEntry, RepairTimePdf, TorqueSpec, User, Vehicle, WorkshopRecord, Workspace } from "../../src/lib/workshop-types";
+import type { Activity, Attachment, RepairTimeEntry, RepairTimePdf, Supplier, TorqueSpec, User, Vehicle, WorkshopRecord, Workspace } from "../../src/lib/workshop-types";
 
 /*
  * Workshop data lives in one SQLite database (`workshop.sqlite`) next to the private
@@ -23,6 +23,7 @@ type Session = { hash: string; userId: string; expires: number };
 export interface Store {
   name: string; vmUrl: string; users: StoredUser[]; sessions: Session[];
   vehicles: Vehicle[]; records: WorkshopRecord[]; attachments: Attachment[]; activity: Activity[];
+  suppliers: Supplier[];
   repairTimeMinutes: number;
   // Licensed repair-time data keyed by upper-case VIN. Entries carry no source;
   // the source is attached when they are copied onto a vehicle.
@@ -58,7 +59,12 @@ CREATE TABLE IF NOT EXISTS vehicles (
 CREATE TABLE IF NOT EXISTS records (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL, vehicle_id TEXT NOT NULL, category TEXT NOT NULL,
   content TEXT NOT NULL, date TEXT NOT NULL, mileage TEXT NOT NULL, repair_time_minutes INTEGER NOT NULL,
+  part_number TEXT NOT NULL DEFAULT '', part_make TEXT NOT NULL DEFAULT '', supplier_id TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, created_by TEXT NOT NULL, sort INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS suppliers (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, website TEXT NOT NULL, search_url TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL, created_by TEXT NOT NULL, sort INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS attachments (
   id TEXT PRIMARY KEY, record_id TEXT NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL, size INTEGER NOT NULL,
@@ -90,7 +96,7 @@ function ensureColumn(db: DatabaseSync, table: string, column: string, definitio
 function emptyStore(): Store {
   return {
     name: "My workshop", vmUrl: "", users: [], sessions: [], vehicles: [], records: [],
-    attachments: [], activity: [], repairTimeMinutes: 0, repairTimesByVin: {}, repairTimePdfs: [],
+    attachments: [], activity: [], suppliers: [], repairTimeMinutes: 0, repairTimesByVin: {}, repairTimePdfs: [],
   };
 }
 
@@ -114,6 +120,10 @@ function database(): DatabaseSync {
   ensureColumn(db, "vehicles", "licence_number", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "vehicles", "colour", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "vehicles", "expiry", "TEXT NOT NULL DEFAULT ''");
+  // Parts arrived after records existed, so their columns are added in place.
+  ensureColumn(db, "records", "part_number", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "records", "part_make", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "records", "supplier_id", "TEXT NOT NULL DEFAULT ''");
   chmodSync(databaseFile, 0o600);
   importLegacyStore(db);
   connection = db;
@@ -213,7 +223,12 @@ function readStore(db: DatabaseSync): Store {
     id: String(row.id), kind: String(row.kind) as WorkshopRecord["kind"], title: String(row.title),
     vehicleId: String(row.vehicle_id), category: String(row.category), content: String(row.content),
     date: String(row.date), mileage: String(row.mileage), repairTimeMinutes: Number(row.repair_time_minutes),
+    partNumber: String(row.part_number ?? ""), partMake: String(row.part_make ?? ""), supplierId: String(row.supplier_id ?? ""),
     createdAt: String(row.created_at), updatedAt: String(row.updated_at), createdBy: String(row.created_by),
+  }));
+  store.suppliers = (db.prepare("SELECT * FROM suppliers ORDER BY sort DESC").all() as unknown as Row[]).map(row => ({
+    id: String(row.id), name: String(row.name), website: String(row.website),
+    searchUrl: String(row.search_url ?? ""), createdAt: String(row.created_at), createdBy: String(row.created_by),
   }));
   store.attachments = (db.prepare("SELECT * FROM attachments ORDER BY sort DESC").all() as unknown as Row[]).map(row => ({
     id: String(row.id), recordId: String(row.record_id), name: String(row.name), type: String(row.type),
@@ -245,7 +260,7 @@ function sortValues(rows: { id: string }[]) {
   return values;
 }
 
-function removeMissing(db: DatabaseSync, table: "users" | "vehicles" | "records" | "attachments" | "activity" | "repair_time_pdfs", before: { id: string }[], after: { id: string }[]) {
+function removeMissing(db: DatabaseSync, table: "users" | "vehicles" | "records" | "attachments" | "activity" | "repair_time_pdfs" | "suppliers", before: { id: string }[], after: { id: string }[]) {
   const kept = new Set(after.map(row => row.id));
   const statement = db.prepare(`DELETE FROM ${table} WHERE id = ?`);
   for (const row of before) if (!kept.has(row.id)) statement.run(row.id);
@@ -319,17 +334,19 @@ function writeVehicles(db: DatabaseSync, before: Store, after: Store) {
 }
 
 const recordKey = (record: WorkshopRecord) => JSON.stringify([record.kind, record.title, record.vehicleId, record.category, record.content,
-  record.date, record.mileage, record.repairTimeMinutes, record.createdAt, record.updatedAt, record.createdBy]);
+  record.date, record.mileage, record.repairTimeMinutes, record.partNumber ?? "", record.partMake ?? "", record.supplierId ?? "",
+  record.createdAt, record.updatedAt, record.createdBy]);
 
 function writeRecords(db: DatabaseSync, before: Store, after: Store) {
   removeMissing(db, "records", before.records, after.records);
   const upsert = db.prepare(`INSERT INTO records (id, kind, title, vehicle_id, category, content, date, mileage,
-      repair_time_minutes, created_at, updated_at, created_by, sort)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      repair_time_minutes, part_number, part_make, supplier_id, created_at, updated_at, created_by, sort)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, title = excluded.title, vehicle_id = excluded.vehicle_id,
       category = excluded.category, content = excluded.content, date = excluded.date, mileage = excluded.mileage,
-      repair_time_minutes = excluded.repair_time_minutes, created_at = excluded.created_at, updated_at = excluded.updated_at,
-      created_by = excluded.created_by, sort = excluded.sort`);
+      repair_time_minutes = excluded.repair_time_minutes, part_number = excluded.part_number,
+      part_make = excluded.part_make, supplier_id = excluded.supplier_id, created_at = excluded.created_at,
+      updated_at = excluded.updated_at, created_by = excluded.created_by, sort = excluded.sort`);
   const move = db.prepare("UPDATE records SET sort = ? WHERE id = ?");
   const prior = new Map(before.records.map(record => [record.id, record]));
   const priorSort = sortValues(before.records);
@@ -339,7 +356,8 @@ function writeRecords(db: DatabaseSync, before: Store, after: Store) {
     const sort = nextSort.get(record.id) ?? 0;
     if (!previous || recordKey(previous) !== recordKey(record)) {
       upsert.run(record.id, record.kind, record.title, record.vehicleId, record.category, record.content, record.date,
-        record.mileage, record.repairTimeMinutes, record.createdAt, record.updatedAt, record.createdBy, sort);
+        record.mileage, record.repairTimeMinutes, record.partNumber ?? "", record.partMake ?? "", record.supplierId ?? "",
+        record.createdAt, record.updatedAt, record.createdBy, sort);
     } else if (priorSort.get(record.id) !== sort) move.run(sort, record.id);
   }
 }
@@ -364,6 +382,29 @@ function writeAttachments(db: DatabaseSync, before: Store, after: Store) {
       upsert.run(attachment.id, attachment.recordId, attachment.name, attachment.type, attachment.size,
         attachment.createdAt, attachment.createdBy, sort);
     } else if (priorSort.get(attachment.id) !== sort) move.run(sort, attachment.id);
+  }
+}
+
+const supplierKey = (supplier: Supplier) => JSON.stringify([supplier.name, supplier.website, supplier.searchUrl,
+  supplier.createdAt, supplier.createdBy]);
+
+function writeSuppliers(db: DatabaseSync, before: Store, after: Store) {
+  removeMissing(db, "suppliers", before.suppliers, after.suppliers);
+  const upsert = db.prepare(`INSERT INTO suppliers (id, name, website, search_url, created_at, created_by, sort)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET name = excluded.name, website = excluded.website, search_url = excluded.search_url,
+      created_at = excluded.created_at, created_by = excluded.created_by, sort = excluded.sort`);
+  const move = db.prepare("UPDATE suppliers SET sort = ? WHERE id = ?");
+  const prior = new Map(before.suppliers.map(supplier => [supplier.id, supplier]));
+  const priorSort = sortValues(before.suppliers);
+  const nextSort = sortValues(after.suppliers);
+  for (const supplier of after.suppliers) {
+    const previous = prior.get(supplier.id);
+    const sort = nextSort.get(supplier.id) ?? 0;
+    if (!previous || supplierKey(previous) !== supplierKey(supplier)) {
+      upsert.run(supplier.id, supplier.name, supplier.website, supplier.searchUrl,
+        supplier.createdAt, supplier.createdBy, sort);
+    } else if (priorSort.get(supplier.id) !== sort) move.run(sort, supplier.id);
   }
 }
 
@@ -439,6 +480,7 @@ function writeStore(db: DatabaseSync, before: Store, after: Store) {
   writeVehicles(db, before, after);
   writeRecords(db, before, after);
   writeAttachments(db, before, after);
+  writeSuppliers(db, before, after);
   writeActivity(db, before, after);
   writeRepairTimePdfs(db, before, after);
   writeRepairTimes(db, before, after);
@@ -529,6 +571,7 @@ export function workspace(db: Store, user?: StoredUser): Workspace {
     name: user ? db.name : "My workshop", vmUrl: user ? db.vmUrl : "",
     vehicles: user ? db.vehicles : [], records: user ? db.records : [],
     attachments: user ? db.attachments : [], activity: user ? db.activity : [],
+    suppliers: user ? db.suppliers : [],
     repairTimeMinutes: db.repairTimeMinutes || 0,
     repairTimePdfs: user?.role === "admin" ? (db.repairTimePdfs || []) : [],
     users: user?.role === "admin" ? db.users.map(publicUser) : [],

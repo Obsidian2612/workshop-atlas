@@ -1,5 +1,5 @@
 export type Role = "admin" | "editor" | "viewer";
-export type RecordKind = "procedure" | "note" | "service";
+export type RecordKind = "procedure" | "note" | "service" | "part";
 export type RepairTimeSource = "imported" | "provider" | "manual" | "gemini";
 /** Operation codes used on repair-time sheets and workshop estimates. */
 export const repairScopeCodes = ["R&I", "S&R", "C&A", "D&R", "Disconnect", "Partially remove"] as const;
@@ -65,6 +65,14 @@ export interface VinLookupResult {
 export interface WorkshopRecord {
   id: string; kind: RecordKind; title: string; vehicleId: string; category: string;
   content: string; date: string; mileage: string; repairTimeMinutes: number; createdAt: string; updatedAt: string; createdBy: string;
+  /** Parts only: the number to order, who makes it and where it is bought. */
+  partNumber?: string; partMake?: string; supplierId?: string;
+}
+/** A parts supplier: its website, plus an optional search URL for its own catalogue. */
+export interface Supplier {
+  id: string; name: string; website: string;
+  /** A search address on the supplier's site; `{query}` is replaced with the search terms. */
+  searchUrl: string; createdAt: string; createdBy: string;
 }
 export interface Attachment {
   id: string; recordId: string; name: string; type: string; size: number; createdAt: string; createdBy: string;
@@ -76,18 +84,20 @@ export interface VehicleIdentification { make: string; model: string; year: stri
 export interface Workspace {
   setupRequired: boolean; user: User | null; name: string; vmUrl: string;
   vehicles: Vehicle[]; records: WorkshopRecord[]; attachments: Attachment[]; activity: Activity[]; users: User[];
+  suppliers: Supplier[];
   repairTimeMinutes: number;
   // Uploaded repair-time sheets (PDF prints). Only administrators receive them.
   repairTimePdfs?: RepairTimePdf[];
 }
-export type Section = "overview" | "vehicles" | "procedures" | "notes" | "history" | "attachments" | "legacy" | "settings";
+export type Section = "overview" | "vehicles" | "procedures" | "notes" | "history" | "parts" | "attachments" | "legacy" | "settings";
 export const sectionTitles: Record<Section, string> = {
   overview: "Workshop overview", vehicles: "Vehicle library", procedures: "Service procedures",
-  notes: "Repair notes", history: "Service history", attachments: "Documents & photos",
+  notes: "Repair notes", history: "Service history", parts: "Parts & suppliers",
+  attachments: "Documents & photos",
   legacy: "Autodata connection", settings: "Workspace settings",
 };
 export const emptyWorkspace: Workspace = {
   setupRequired: false, user: null, name: "My workshop", vmUrl: "",
-  vehicles: [], records: [], attachments: [], activity: [], users: [],
+  vehicles: [], records: [], attachments: [], activity: [], users: [], suppliers: [],
   repairTimeMinutes: 0
 };

@@ -62,7 +62,7 @@ export default defineHandler(async event => {
       return vehicle;
     }
     const kind = text(body.kind, "Record kind", 20, true);
-    if (!["procedure", "note", "service"].includes(kind)) fail(400, "Invalid record type");
+    if (!["procedure", "note", "service", "part"].includes(kind)) fail(400, "Invalid record type");
     const vehicleId = text(body.vehicleId, "Vehicle", 80);
     if (vehicleId && !db.vehicles.some(v => v.id === vehicleId)) fail(400, "The selected vehicle does not exist");
     if (kind === "service" && !vehicleId) fail(400, "Select a vehicle for this service entry");
@@ -71,9 +71,15 @@ export default defineHandler(async event => {
     const rawRepairTime = body.repairTimeMinutes ?? body.repairTime;
     const repairTimeMinutes = rawRepairTime === undefined || rawRepairTime === null || rawRepairTime === "" ? 0 : Number(rawRepairTime);
     if (!Number.isInteger(repairTimeMinutes) || repairTimeMinutes < 0) fail(400, "Repair time must be a whole number of minutes of 0 or more");
-    const record = { ...common, kind: kind as "procedure" | "note" | "service", vehicleId,
+    // A part is identified by its number and its supplier; the notes are optional.
+    const supplierId = text(body.supplierId, "Supplier", 80);
+    if (supplierId && !db.suppliers.some(supplier => supplier.id === supplierId)) fail(400, "The selected supplier does not exist");
+    const record = { ...common, kind: kind as "procedure" | "note" | "service" | "part", vehicleId,
       title: text(body.title, "Title", 200, true), category: text(body.category, "Category", 100),
-      content: text(body.content, "Content", 30000, true), date, mileage: text(body.mileage, "Mileage", 40),
+      content: text(body.content, "Content", 30000, kind !== "part"), date, mileage: text(body.mileage, "Mileage", 40),
+      partNumber: kind === "part" ? text(body.partNumber, "Part number", 60) : "",
+      partMake: kind === "part" ? text(body.partMake, "Part manufacturer", 60) : "",
+      supplierId: kind === "part" ? supplierId : "",
       repairTimeMinutes: kind === "service" ? repairTimeMinutes : 0 };
     db.records = [record, ...db.records.filter(r => r.id !== record.id)];
     logActivity(db, user, `${existing ? "Updated" : "Added"} ${record.title}`);

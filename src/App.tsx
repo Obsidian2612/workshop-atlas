@@ -20,6 +20,7 @@ const App = () => (
           <Route path="/procedures" element={<Index />} />
           <Route path="/notes" element={<Index />} />
           <Route path="/history" element={<Index />} />
+          <Route path="/parts" element={<Index />} />
           <Route path="/attachments" element={<Index />} />
           <Route path="/legacy" element={<Index />} />
           <Route path="/settings" element={<Index />} />
