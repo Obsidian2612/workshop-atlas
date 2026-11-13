@@ -73,11 +73,13 @@ export interface ModelStep {
   id: string; make: string; model: string; label: string; scope: string; minutes: number;
   createdAt: string; createdBy: string;
 }
-/** A parts supplier: its website, plus an optional search URL for its own catalogue. */
+/** A parts supplier: its website, plus optional search addresses for its own catalogue. */
 export interface Supplier {
   id: string; name: string; website: string;
-  /** A search address on the supplier's site; `{query}` is replaced with the search terms. */
-  searchUrl: string; createdAt: string; createdBy: string;
+  /** The address that takes a part number; `{query}` is replaced with the search terms. */
+  searchUrl: string;
+  /** The address that takes words from a part's name, for shops whose search ignores numbers. */
+  nameSearchUrl: string; createdAt: string; createdBy: string;
 }
 export interface Attachment {
   id: string; recordId: string; name: string; type: string; size: number; createdAt: string; createdBy: string;

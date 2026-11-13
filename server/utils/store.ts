@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS records (
 );
 CREATE TABLE IF NOT EXISTS suppliers (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, website TEXT NOT NULL, search_url TEXT NOT NULL DEFAULT '',
+  name_search_url TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL, created_by TEXT NOT NULL, sort INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS model_steps (
@@ -132,6 +133,9 @@ function database(): DatabaseSync {
   ensureColumn(db, "records", "part_number", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "records", "part_make", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "records", "supplier_id", "TEXT NOT NULL DEFAULT ''");
+  // Suppliers began with one search address; shops that only match product names
+  // needed a second one, so it is added in place too.
+  ensureColumn(db, "suppliers", "name_search_url", "TEXT NOT NULL DEFAULT ''");
   chmodSync(databaseFile, 0o600);
   importLegacyStore(db);
   connection = db;
@@ -236,7 +240,8 @@ function readStore(db: DatabaseSync): Store {
   }));
   store.suppliers = (db.prepare("SELECT * FROM suppliers ORDER BY sort DESC").all() as unknown as Row[]).map(row => ({
     id: String(row.id), name: String(row.name), website: String(row.website),
-    searchUrl: String(row.search_url ?? ""), createdAt: String(row.created_at), createdBy: String(row.created_by),
+    searchUrl: String(row.search_url ?? ""), nameSearchUrl: String(row.name_search_url ?? ""),
+    createdAt: String(row.created_at), createdBy: String(row.created_by),
   }));
   store.modelSteps = (db.prepare("SELECT * FROM model_steps ORDER BY sort DESC").all() as unknown as Row[]).map(row => ({
     id: String(row.id), make: String(row.make), model: String(row.model), label: String(row.label),
@@ -399,14 +404,15 @@ function writeAttachments(db: DatabaseSync, before: Store, after: Store) {
 }
 
 const supplierKey = (supplier: Supplier) => JSON.stringify([supplier.name, supplier.website, supplier.searchUrl,
-  supplier.createdAt, supplier.createdBy]);
+  supplier.nameSearchUrl, supplier.createdAt, supplier.createdBy]);
 
 function writeSuppliers(db: DatabaseSync, before: Store, after: Store) {
   removeMissing(db, "suppliers", before.suppliers, after.suppliers);
-  const upsert = db.prepare(`INSERT INTO suppliers (id, name, website, search_url, created_at, created_by, sort)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+  const upsert = db.prepare(`INSERT INTO suppliers (id, name, website, search_url, name_search_url, created_at, created_by, sort)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET name = excluded.name, website = excluded.website, search_url = excluded.search_url,
-      created_at = excluded.created_at, created_by = excluded.created_by, sort = excluded.sort`);
+      name_search_url = excluded.name_search_url, created_at = excluded.created_at,
+      created_by = excluded.created_by, sort = excluded.sort`);
   const move = db.prepare("UPDATE suppliers SET sort = ? WHERE id = ?");
   const prior = new Map(before.suppliers.map(supplier => [supplier.id, supplier]));
   const priorSort = sortValues(before.suppliers);
@@ -415,7 +421,7 @@ function writeSuppliers(db: DatabaseSync, before: Store, after: Store) {
     const previous = prior.get(supplier.id);
     const sort = nextSort.get(supplier.id) ?? 0;
     if (!previous || supplierKey(previous) !== supplierKey(supplier)) {
-      upsert.run(supplier.id, supplier.name, supplier.website, supplier.searchUrl,
+      upsert.run(supplier.id, supplier.name, supplier.website, supplier.searchUrl, supplier.nameSearchUrl,
         supplier.createdAt, supplier.createdBy, sort);
     } else if (priorSort.get(supplier.id) !== sort) move.run(sort, supplier.id);
   }

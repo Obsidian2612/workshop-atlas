@@ -36,16 +36,18 @@ export default defineHandler(async event => {
     const name = text(body.name, "Supplier name", 100, true);
     if (db.suppliers.some(item => item.name.toLowerCase() === name.toLowerCase() && item.id !== existing?.id)) fail(400, "A supplier with that name is already listed");
     const now = new Date().toISOString();
-    // The optional search address is checked with every placeholder filled in, so a
-    // template that cannot produce a working link is refused now rather than later.
-    const searchUrl = text(body.searchUrl, "Search address", 1000);
-    if (searchUrl) {
-      const filled = searchUrl.split("{query}").join("brake pads").split("{vin}").join("WVWZZZAUZFW123794");
-      webAddress(filled, "Search address", false);
-    }
+    // The optional search addresses are checked with every placeholder filled in, so
+    // a template that cannot produce a working link is refused now rather than later.
+    const searchAddress = (value: unknown, label: string) => {
+      const raw = text(value, label, 1000);
+      if (raw) webAddress(raw.split("{query}").join("brake pads").split("{vin}").join("WVWZZZAUZFW123794"), label, false);
+      return raw;
+    };
+    const searchUrl = searchAddress(body.searchUrl, "Search address");
+    const nameSearchUrl = searchAddress(body.nameSearchUrl, "Name search address");
     const supplier = {
       id: existing?.id || randomUUID(), name,
-      website: webAddress(body.website, "Website", true), searchUrl,
+      website: webAddress(body.website, "Website", true), searchUrl, nameSearchUrl,
       createdAt: existing?.createdAt || now, createdBy: existing?.createdBy || user.name,
     };
     db.suppliers = [supplier, ...db.suppliers.filter(item => item.id !== supplier.id)];

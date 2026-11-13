@@ -40,9 +40,9 @@ export function knownCatalogueUrl(website: string, query: string): string | unde
 }
 
 /** The address a shop can store instead of working it out from the supplier's own results. */
-export function knownCatalogueTemplate(website: string): { label: string; template: string } | undefined {
+export function knownCatalogueTemplate(website: string): { label: string; template: string; partsByTitle: boolean } | undefined {
   const catalogue = knownCatalogue(website);
-  return catalogue ? { label: catalogue.label, template: catalogue.template } : undefined;
+  return catalogue ? { label: catalogue.label, template: catalogue.template, partsByTitle: Boolean(catalogue.partsByTitle) } : undefined;
 }
 
 export function vehicleQuery(vehicle?: Vehicle | null, mode: "vin" | "identity" = "identity") {
@@ -86,8 +86,17 @@ export function supplierSearchUrl(supplier: Supplier, query: string, hint?: Cata
   const terms = query.trim();
   const number = (hint?.number || "").trim();
   const title = (hint?.title || "").trim();
-  const template = supplier.searchUrl.trim();
-  if (template.includes("{query}")) return fillTemplate(template, { query: number || title || terms, vin });
+  // A shop may keep one address for numbers and another for names: the part decides
+  // which one matches, and either address can answer with the other kind of term.
+  const addresses = [
+    { template: supplier.searchUrl.trim(), value: number },
+    { template: supplier.nameSearchUrl.trim(), value: title },
+    { template: supplier.searchUrl.trim(), value: number || title },
+    { template: supplier.nameSearchUrl.trim(), value: title || number },
+  ];
+  for (const address of addresses) {
+    if (address.value && address.template.includes("{query}")) return fillTemplate(address.template, { query: address.value, vin });
+  }
   if (number || title) {
     const known = knownCatalogue(supplier.website);
     if (known) {
@@ -109,9 +118,12 @@ export function supplierSearchUrl(supplier: Supplier, query: string, hint?: Cata
  */
 export function supplierVehicleUrl(supplier: Supplier, vehicle?: Vehicle | null) {
   const terms = vehicleQuery(vehicle);
-  const template = supplier.searchUrl.trim();
   const vin = vehicleQuery(vehicle, "vin");
-  if (template.includes("{query}")) return fillTemplate(template, { query: terms, vin });
+  // A vehicle is described by words, so the name address comes first.
+  const nameTemplate = supplier.nameSearchUrl.trim();
+  const numberTemplate = supplier.searchUrl.trim();
+  if (nameTemplate.includes("{query}")) return fillTemplate(nameTemplate, { query: terms, vin });
+  if (numberTemplate.includes("{query}")) return fillTemplate(numberTemplate, { query: terms, vin });
   return supplierSearchUrl(supplier, terms, { title: vehicleCatalogueQuery(vehicle) }, vin);
 }
 
