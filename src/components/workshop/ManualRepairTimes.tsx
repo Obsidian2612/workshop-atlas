@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { api } from "@/lib/workshop-api";
-import { repairScopeCodes, type RepairTimeEntry, type Vehicle } from "@/lib/workshop-types";
+import { repairScopeCodes, type RepairTimeEntry, type Vehicle, type Workspace } from "@/lib/workshop-types";
 import { Pick } from "./primitives";
 import { toast } from "sonner";
 
@@ -26,8 +26,9 @@ const today = () => new Date().toISOString().slice(0, 10);
  * whether it is a remove-and-install or a service-and-repair, and the individual
  * steps the time includes. Everything here is the reader's own data.
  */
-export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
+export default function ManualRepairTimes({ vehicle, data, entry, close, refresh }: {
   vehicle: Vehicle;
+  data: Workspace;
   entry?: RepairTimeEntry;
   close: () => void;
   refresh: () => Promise<void>;
@@ -45,19 +46,29 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
   const [csvError, setCsvError] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
-  // The same few steps (a valve cover, a coolant drain) recur across many jobs, so
-  // the suggestions for a step row come from the steps this vehicle already knows
-  // rather than from its operation names. A label appears once, first one wins.
+  // The same few steps (a valve cover, a coolant drain) recur across many jobs, and
+  // a valve cover is the same work whichever Golf it is on. Steps are gathered from
+  // this vehicle first, then from the other vehicles of the same make and model, so
+  // a step recorded once is offered everywhere that model is worked on. A label
+  // appears once; this vehicle's own wording wins over a borrowed one.
+  const sameModel = (other: Vehicle) =>
+    (other.make || "").trim().toLowerCase() === (vehicle.make || "").trim().toLowerCase()
+    && (other.model || "").trim().toLowerCase() === (vehicle.model || "").trim().toLowerCase();
+  const siblings = vehicle.make && vehicle.model ? data.vehicles.filter(other => other.id !== vehicle.id && sameModel(other)) : [];
   const knownSteps = (() => {
-    const seen = new Map<string, { label: string; scope: string; minutes: number }>();
-    for (const time of vehicle.repairTimes || []) {
-      for (const step of time.includes || []) {
+    const seen = new Map<string, { label: string; scope: string; minutes: number; from: string }>();
+    const collect = (from: string, times?: RepairTimeEntry[]) => {
+      for (const time of times || []) for (const step of time.includes || []) {
         const label = step.label.trim();
-        if (label && !seen.has(label.toLowerCase())) seen.set(label.toLowerCase(), { label, scope: step.scope || "", minutes: step.minutes });
+        if (!label || seen.has(label.toLowerCase())) continue;
+        seen.set(label.toLowerCase(), { label, scope: step.scope || "", minutes: step.minutes, from });
       }
-    }
+    };
+    collect("", vehicle.repairTimes);
+    for (const other of siblings) collect([other.make, other.model, other.registration || other.year].filter(Boolean).join(" "), other.repairTimes);
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label));
   })();
+  const borrowedSteps = knownSteps.filter(step => step.from).length;
   const code = scope === "none" ? "" : scope;
   const includedMinutes = steps.reduce((sum, step) => sum + (Number(step.minutes) || 0), 0);
 
@@ -182,7 +193,7 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-xs font-semibold">Steps this time includes</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">{steps.length ? `${steps.length} step${steps.length === 1 ? "" : "s"} · ${includedMinutes} min total` : "Optional. List the bundled operations and their own codes."}</p><p className="mt-1 text-[11px] text-muted-foreground">{knownSteps.length > 0 ? `Start typing a step to pick one of the ${knownSteps.length} step${knownSteps.length === 1 ? "" : "s"} this vehicle already uses, or tick several at once.` : "No steps recorded for this vehicle yet. Anything you add here becomes a suggestion on its other repair times."}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">{steps.length ? `${steps.length} step${steps.length === 1 ? "" : "s"} · ${includedMinutes} min total` : "Optional. List the bundled operations and their own codes."}</p><p className="mt-1 text-[11px] text-muted-foreground">{knownSteps.length > 0 ? `Start typing a step to pick one of the ${knownSteps.length} step${knownSteps.length === 1 ? "" : "s"} known for this ${vehicle.make} ${vehicle.model}${borrowedSteps ? `, ${borrowedSteps} of them recorded on another ${vehicle.make} ${vehicle.model}` : ""} — or tick several at once.` : `No steps recorded for this ${vehicle.make} ${vehicle.model} or another of the same model yet. Anything you add here is offered on their repair times too.`}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {knownSteps.length > 0 && <Popover open={pickerOpen} onOpenChange={open => { setPickerOpen(open); if (!open) setPicked([]); }}>
@@ -190,13 +201,13 @@ export default function ManualRepairTimes({ vehicle, entry, close, refresh }: {
                   <Button type="button" variant="outline" className="h-9 rounded-lg text-xs"><ChevronDown size={14} className="mr-1.5" />Pick known steps</Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-80 rounded-xl border-border bg-white p-0 shadow-xl">
-                  <p className="border-b border-border px-4 py-3 text-xs font-semibold">Add steps this vehicle already uses</p>
+                  <p className="border-b border-border px-4 py-3 text-xs font-semibold">Add steps this model already uses</p>
                   <div className="max-h-64 overflow-y-auto p-2">
                     {knownSteps.map(item => <div key={item.label} onClick={() => setPicked(current => current.includes(item.label) ? current.filter(name => name !== item.label) : [...current, item.label])} className="flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-muted/60">
                       <span className="mt-0.5" onClick={event => event.stopPropagation()}><Checkbox aria-label={item.label} checked={picked.includes(item.label)} onCheckedChange={checked => setPicked(current => checked ? [...current, item.label] : current.filter(name => name !== item.label))} /></span>
                       <span className="min-w-0">
                         <span className="block truncate text-xs font-medium">{item.label}</span>
-                        <span className="block text-[11px] text-muted-foreground">{item.minutes ? `${item.minutes} min` : "No time yet"}{item.scope ? ` · ${item.scope}` : ""}</span>
+                        <span className="block truncate text-[11px] text-muted-foreground">{item.minutes ? `${item.minutes} min` : "No time yet"}{item.scope ? ` · ${item.scope}` : ""}{item.from ? ` · from ${item.from}` : ""}</span>
                       </span>
                     </div>)}
                   </div>
