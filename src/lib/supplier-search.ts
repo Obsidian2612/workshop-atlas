@@ -16,6 +16,9 @@ import type { Supplier, Vehicle, WorkshopRecord } from "./workshop-types";
 const knownCatalogues: { host: RegExp; search: (query: string) => string }[] = [
   // Goldwagen's Parts Finder searches OE numbers, GW numbers and descriptions.
   { host: /(^|\.)goldwagen\.com$/i, search: query => `https://partsfinder.goldwagen.com/PartsFinder/Index?stext=${encodeURIComponent(query)}` },
+  // AutoZone South Africa takes the keyword in `k`; the empty `q` is part of the
+  // address — without it the result list comes back empty.
+  { host: /(^|\.)autozoneonline\.co\.za$/i, search: query => `https://www.autozoneonline.co.za/search/text/input?q=&k=${encodeURIComponent(query)}` },
 ];
 
 export function knownCatalogueUrl(website: string, query: string): string | undefined {
