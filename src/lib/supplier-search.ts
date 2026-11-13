@@ -13,7 +13,7 @@ import type { Supplier, Vehicle, WorkshopRecord } from "./workshop-types";
  * Those patterns are checked in the workspace against the real site, so a shop
  * gets a direct search without having to work the link out by hand.
  */
-const knownCatalogues: { host: RegExp; label: string; template: string }[] = [
+const knownCatalogues: { host: RegExp; label: string; template: string; partsByTitle?: boolean }[] = [
   // Goldwagen's Parts Finder searches OE numbers, GW numbers and descriptions.
   { host: /(^|\.)goldwagen\.com$/i, label: "Goldwagen Parts Finder", template: "https://partsfinder.goldwagen.com/PartsFinder/Index?stext={query}" },
   // AutoZone South Africa takes the keyword in `k`; the empty `q` is part of the
@@ -22,6 +22,10 @@ const knownCatalogues: { host: RegExp; label: string; template: string }[] = [
   // Spares Direct is a WooCommerce shop: `post_type=product` keeps the results to
   // parts, and their titles carry OE numbers, so a number finds the part.
   { host: /(^|\.)sparesdirect\.co\.za$/i, label: "Spares Direct search", template: "https://sparesdirect.co.za/?s={query}&post_type=product" },
+  // Midas and Start My Car are retail shops whose search matches the words in a
+  // product's name: a part number finds nothing, so their links carry the name.
+  { host: /(^|\.)midas\.co\.za$/i, label: "Midas search", template: "https://midas.co.za/search?q={query}", partsByTitle: true },
+  { host: /(^|\.)startmycar\.co\.za$/i, label: "Start My Car search", template: "https://www.startmycar.co.za/search?q={query}", partsByTitle: true },
 ];
 
 function knownCatalogue(website: string) {
@@ -70,19 +74,28 @@ export function webSearchUrl(query: string) {
   return `https://www.google.com/search?q=${encodeURIComponent(query.trim())}`;
 }
 
+/** What can narrow a catalogue search down: a part's number and its name. */
+export type CatalogueHint = { number?: string; title?: string };
+
 /*
  * A catalogue search is a text match on the supplier's own site, so it takes only
  * the number, the part's name or the vehicle's make and model — extra words like
  * the engine make it return nothing. A web search is better with every term.
  */
-export function supplierSearchUrl(supplier: Supplier, query: string, catalogueQuery?: string, vin?: string) {
+export function supplierSearchUrl(supplier: Supplier, query: string, hint?: CatalogueHint, vin?: string) {
   const terms = query.trim();
-  const lean = (catalogueQuery || "").trim();
+  const number = (hint?.number || "").trim();
+  const title = (hint?.title || "").trim();
   const template = supplier.searchUrl.trim();
-  if (template.includes("{query}")) return fillTemplate(template, { query: lean || terms, vin });
-  if (lean) {
-    const known = knownCatalogueUrl(supplier.website, lean);
-    if (known) return known;
+  if (template.includes("{query}")) return fillTemplate(template, { query: number || title || terms, vin });
+  if (number || title) {
+    const known = knownCatalogue(supplier.website);
+    if (known) {
+      // A shop that only matches the words in a product's name gets the name rather
+      // than a number it will answer with an empty page.
+      const lean = known.partsByTitle ? title || number : number || title;
+      return known.template.split("{query}").join(encodeURIComponent(lean));
+    }
   }
   return siteSearch(supplier, terms);
 }
@@ -99,7 +112,7 @@ export function supplierVehicleUrl(supplier: Supplier, vehicle?: Vehicle | null)
   const template = supplier.searchUrl.trim();
   const vin = vehicleQuery(vehicle, "vin");
   if (template.includes("{query}")) return fillTemplate(template, { query: terms, vin });
-  return supplierSearchUrl(supplier, terms, vehicleCatalogueQuery(vehicle), vin);
+  return supplierSearchUrl(supplier, terms, { title: vehicleCatalogueQuery(vehicle) }, vin);
 }
 
 /**
