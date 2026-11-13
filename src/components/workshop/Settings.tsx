@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { ModelStep, RepairSheetOperation, RepairTimePdf, Supplier, User, Workspace } from "@/lib/workshop-types";
 import { api, download, fileUrl, uploadFile } from "@/lib/workshop-api";
+import { knownCatalogueUrl } from "@/lib/supplier-search";
 import { Panel, PanelHeading, Pick, fileSize, prettyDate } from "./primitives";
 import { toast } from "sonner";
 
@@ -277,7 +278,7 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
       <Panel>
         <PanelHeading title="Parts suppliers" subtitle="Where parts come from, and how to search their catalogues" action={editor ? <Button onClick={() => setSupplierEdit({})} className="h-9 rounded-lg text-xs"><Plus size={14} className="mr-1.5" />Add supplier</Button> : undefined} />
         <div className="p-6">
-          <p className="text-[11px] leading-5 text-muted-foreground">Each supplier's website is kept here so a part can be ordered from the same place it was looked up. Add a catalogue search address if the supplier's own search accepts a query in the link; otherwise the search is narrowed to their site automatically.</p>
+          <p className="text-[11px] leading-5 text-muted-foreground">Each supplier's website is kept here so a part can be ordered from the same place it was looked up. Catalogues the app already knows — Goldwagen's Parts Finder, for example — are searched directly. Paste a search address for any other supplier whose site takes the query in the link; the rest are searched through the web, narrowed to their site.</p>
           {suppliers.length === 0 ? (
             <p className="mt-4 rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">No suppliers yet. Add the shops you buy from to search their sites from a part or a vehicle.</p>
           ) : (
@@ -289,7 +290,7 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
                     <p className="truncate text-sm font-semibold">{supplier.name}</p>
                     <a href={supplier.website} target="_blank" rel="noreferrer noopener" className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-primary">{supplier.website}<ExternalLink size={11} className="shrink-0" /></a>
                   </div>
-                  <Badge variant="secondary" className="rounded-md bg-background px-2.5 py-1 text-[10px] font-normal text-muted-foreground">{supplier.searchUrl ? "Own search link" : "Site search"}</Badge>
+                  <Badge variant="secondary" className="rounded-md bg-background px-2.5 py-1 text-[10px] font-normal text-muted-foreground">{supplier.searchUrl ? "Own search link" : knownCatalogueUrl(supplier.website, "test") ? "Parts finder" : "Site search"}</Badge>
                   {editor && <><Button variant="ghost" size="icon" aria-label={`Edit ${supplier.name}`} onClick={() => setSupplierEdit({ supplier })} className="h-8 w-8 rounded-lg text-muted-foreground"><Pencil size={14} /></Button><Button variant="ghost" size="icon" aria-label={`Remove ${supplier.name}`} disabled={supplierBusy} onClick={() => removeSupplier(supplier)} className="h-8 w-8 rounded-lg text-destructive"><Trash2 size={14} /></Button></>}
                 </div>
               ))}
@@ -441,7 +442,7 @@ function SupplierDialog({ supplier, close, refresh }: { supplier?: Supplier; clo
         <form onSubmit={submit} className="mt-2 space-y-4">
           <div><Label htmlFor="supplier-name" className="text-xs font-semibold">Supplier name</Label><Input id="supplier-name" name="name" required defaultValue={supplier?.name} placeholder="e.g. Goldwagen, Autozone" maxLength={100} className="mt-2 h-11 rounded-lg" /></div>
           <div><Label htmlFor="supplier-website" className="text-xs font-semibold">Website</Label><Input id="supplier-website" name="website" type="url" required defaultValue={supplier?.website} placeholder="https://www.example.co.za" maxLength={1000} className="mt-2 h-11 rounded-lg" /></div>
-          <div><Label htmlFor="supplier-search" className="text-xs font-semibold">Catalogue search address <span className="font-normal text-muted-foreground">(optional)</span></Label><Input id="supplier-search" name="searchUrl" defaultValue={supplier?.searchUrl} placeholder="https://www.example.co.za/search?q={query}" maxLength={1000} className="mt-2 h-11 rounded-lg font-mono text-xs" /><p className="mt-2 text-[11px] leading-5 text-muted-foreground">Paste the address from the supplier's own search results and replace the words you typed with <code className="rounded bg-background px-1 font-mono">{"{query}"}</code>. Leave it empty to search their site through a web search instead.</p></div>
+          <div><Label htmlFor="supplier-search" className="text-xs font-semibold">Catalogue search address <span className="font-normal text-muted-foreground">(optional)</span></Label><Input id="supplier-search" name="searchUrl" defaultValue={supplier?.searchUrl} placeholder="https://www.example.co.za/search?q={query}" maxLength={1000} className="mt-2 h-11 rounded-lg font-mono text-xs" /><p className="mt-2 text-[11px] leading-5 text-muted-foreground">Paste the address from the supplier's own search results and replace the words you typed with <code className="rounded bg-background px-1 font-mono">{"{query}"}</code>. Leave it empty and a known catalogue is searched directly, otherwise their site through a web search.</p></div>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2"><Button variant="outline" type="button" disabled={busy} onClick={close} className="h-11 rounded-lg">Cancel</Button><Button disabled={busy} className="h-11 rounded-lg px-6">{busy && <Loader2 size={16} className="mr-2 animate-spin" />}Save supplier</Button></div>
         </form>
