@@ -1,5 +1,5 @@
 import { fail } from "./store";
-import { cleanTorqueValue, normalizeTorqueUnit } from "./torques";
+import { cleanTorqueValue, normalizeTorqueUnit, parseTorqueCsv } from "./torques";
 import type { TorqueSpec } from "../../src/lib/workshop-types";
 
 const timeoutMs = Number(process.env.GEMINI_TIMEOUT_MS) || 60000;
@@ -90,7 +90,7 @@ function thinkingConfig(model: string) {
   return undefined;
 }
 
-async function askGemini(prompt: string): Promise<string> {
+async function askGemini(prompt: string, mimeType = "application/json"): Promise<string> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) fail(503, "GEMINI_API_KEY is not configured on the server");
   // The vehicle model is not the Gemini model; keep them separate.
@@ -105,7 +105,7 @@ async function askGemini(prompt: string): Promise<string> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0, responseMimeType: "application/json", thinkingConfig: thinkingConfig(target) },
+        generationConfig: { temperature: 0, responseMimeType: mimeType, thinkingConfig: thinkingConfig(target) },
       }),
       signal: controller.signal,
     });
@@ -152,11 +152,15 @@ export async function fetchGeminiTorques(vin: string, make?: string, model?: str
   ].filter(Boolean).join(", ") || "this vehicle";
   const prompt = [
     `Give the manufacturer tightening torque specifications for ${subject}.`,
-    "Reply with a JSON array only — no prose, no code fences.",
-    'Format: [{"fastener":"Front lower arm bolt","stage":"1","value":90,"unit":"Nm"}]',
-    'unit must be one of "Nm", "lbf·ft", "lbf·in" or "kgf·m". value must be a number greater than 0.',
-    'stage is optional: "1", "2" or a short label.',
-    `Return at most ${maxTorqueRows} fasteners. If the vehicle is unknown, reply with []. Do not invent values.`,
+    "Reply with a CSV table only — a header line, one row per fastener, no prose, no code fences, no blank lines.",
+    "The header line must be exactly: fastener,stage,value,unit",
+    'Example row: "Front lower arm bolt to subframe",1,90,Nm',
+    'Quote a fastener name that contains a comma. stage is "1", "2" or empty when the source shows no stage.',
+    'value is a number greater than 0. unit must be one of "Nm", "lbf·ft", "lbf·in" or "kgf·m".',
+    `Return at most ${maxTorqueRows} fasteners. If the vehicle is unknown, reply with the header line only. Do not invent values.`,
   ].join("\n");
-  return parseGeminiTorques(await askGemini(prompt), vin);
+  const reply = await askGemini(prompt, "text/plain");
+  const rows = parseTorqueCsv(reply).slice(0, maxRows).map(row => ({ vin, fastener: row.fastener, stage: row.stage, value: row.value, unit: row.unit }));
+  // Older replies, or a model that ignores the CSV request, still arrive as JSON.
+  return rows.length ? rows : parseGeminiTorques(reply, vin);
 }

@@ -145,7 +145,104 @@ export function parseTorqueLine(line: string): TorqueSpec | null {
   return { fastener: name, stage, value, unit: unit.unit };
 }
 
+/** A row read from a CSV table: the four torque columns, plus where it came from. */
+export interface TorqueCsvRow extends TorqueSpec {
+  sourceTitle?: string;
+  sourceUrl?: string;
+  snippet?: string;
+}
+
+/*
+ * The AI lookups answer with a CSV table so the same rows can be read here, kept in
+ * a spreadsheet, or pasted back into the app. The headings decide the columns, so
+ * their order does not matter and the source columns are optional.
+ */
+const csvHeadings: Record<string, string[]> = {
+  fastener: ["fastener", "component", "bolt", "description", "item", "part"],
+  stage: ["stage", "step"],
+  value: ["value", "torque", "torquevalue"],
+  unit: ["unit", "units"],
+  sourceTitle: ["sourcetitle", "source", "sourcename"],
+  sourceUrl: ["sourceurl", "url", "link", "sourceaddress"],
+  snippet: ["snippet", "quote", "note", "notes"],
+};
+
+/** Split CSV text into cells, honouring quoted fields that contain commas. */
+function csvCells(source: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index];
+    if (quoted) {
+      if (char === '"') {
+        if (source[index + 1] === '"') { cell += '"'; index++; }
+        else quoted = false;
+      } else cell += char;
+      continue;
+    }
+    if (char === '"') quoted = true;
+    else if (char === ",") { row.push(cell); cell = ""; }
+    else if (char === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+    else if (char !== "\r") cell += char;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(cells => cells.some(value => value.trim()));
+}
+
+export function parseTorqueCsv(source: string): TorqueCsvRow[] {
+  const rows = csvCells(source.replace(/```[a-z]*/gi, ""));
+  const heading = (cell: string) => cell.trim().toLowerCase().replace(/[^a-z]/g, "");
+  let columns: Record<string, number> | null = null;
+  const specs: TorqueCsvRow[] = [];
+  const positions = new Map<string, number>();
+  for (const row of rows) {
+    const keys = row.map(heading);
+    if (!columns) {
+      // The header row is whichever line names a fastener, a value and a unit.
+      const has = (field: string) => keys.some(key => csvHeadings[field].includes(key));
+      if (!has("fastener") || !has("value") || !has("unit")) continue;
+      columns = {};
+      keys.forEach((key, index) => {
+        for (const [field, aliases] of Object.entries(csvHeadings)) {
+          if (aliases.includes(key) && columns![field] === undefined) columns![field] = index;
+        }
+      });
+      continue;
+    }
+    const cell = (field: string) => {
+      const index = columns![field];
+      return index === undefined ? "" : (row[index] || "").trim();
+    };
+    const fastener = cell("fastener").replace(/\s+/g, " ").trim().slice(0, 200);
+    if (fastener.length < 2 || !/[a-z]/i.test(fastener) || notFastener.test(fastener)) continue;
+    // A value column may carry the unit with it (`90 Nm`) when there is no unit column.
+    const rawValue = cell("value");
+    const split = rawValue.match(/^(\d{1,4}(?:[.,]\d{1,3})?)\s*(.*)$/);
+    const value = cleanTorqueValue(split?.[1] ?? rawValue);
+    const unit = normalizeTorqueUnit(cell("unit")) ?? normalizeTorqueUnit(split?.[2] ?? "");
+    if (value === null || !unit) continue;
+    const spec: TorqueCsvRow = { fastener, stage: cell("stage").slice(0, 40), value, unit };
+    const sourceTitle = cell("sourceTitle").slice(0, 200);
+    const sourceUrl = cell("sourceUrl").slice(0, 1000);
+    const snippet = cell("snippet").slice(0, 400);
+    if (sourceTitle) spec.sourceTitle = sourceTitle;
+    if (sourceUrl) spec.sourceUrl = sourceUrl;
+    if (snippet) spec.snippet = snippet;
+    const key = `${fastener.toLowerCase()}|${spec.stage.toLowerCase()}`;
+    const at = positions.get(key);
+    if (at === undefined) { positions.set(key, specs.length); specs.push(spec); }
+    else specs[at] = spec;
+  }
+  return specs;
+}
+
 export function parseTorqueText(source: string): TorqueSpec[] {
+  // A pasted CSV table — including one an AI wrote — is read by its headings, so a
+  // comma inside a fastener name does not swallow the stage.
+  const table = parseTorqueCsv(source);
+  if (table.length) return table.map(({ fastener, stage, value, unit }) => ({ fastener, stage, value, unit }));
   const lines = source
     .replace(/\r\n?/g, "\n")
     .replace(/\u00a0/g, " ")

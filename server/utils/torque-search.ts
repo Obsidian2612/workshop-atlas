@@ -1,5 +1,5 @@
 import { fail } from "./store";
-import { cleanTorqueValue, normalizeTorqueUnit } from "./torques";
+import { cleanTorqueValue, normalizeTorqueUnit, parseTorqueCsv, type TorqueCsvRow } from "./torques";
 import type { TorqueSearchCandidate, TorqueSearchResponse, TorqueSearchSource } from "../../src/lib/workshop-types";
 
 interface SearchVehicle {
@@ -36,9 +36,10 @@ function promptFor(vehicle: SearchVehicle) {
     "Use your browser_search tool to find real source pages. Prefer OEM service information or a reputable workshop manual that identifies the matching vehicle and engine.",
     "Never infer values from a related model/year and never invent a torque. Include a candidate only when the cited source clearly supports the exact fastener, value and unit. If you cannot verify a value, omit it.",
     "Read the actual browser-search source snippets/pages: do not list generic search snippets as sources. Keep source results even when you cannot extract a numeric torque, so the user can open the source and paste its table manually.",
-    "Return only one valid JSON object, with no markdown or prose, in this shape:",
-    '{"results":[{"title":"Source page title","url":"https://...","snippet":"Short exact supporting text from the page"}],"candidates":[{"fastener":"Front lower arm bolt","stage":"1","value":90,"unit":"Nm","sourceIndex":1,"sourceTitle":"Source page title","sourceUrl":"https://...","snippet":"Short exact supporting text"}]}',
-    `Use only these torque units: Nm, lbf·ft, lbf·in, kgf·m. Return at most ${maxRows} candidates. Use an empty string when a stage is not specified and empty arrays when no reliable result is found. Include the 1-based sourceIndex for each torque row, matching its source in results, and copy the source URL exactly. Include direct source-page URLs, not search-result URLs.`,
+    "Return only a CSV table — no markdown, no prose, no code fences.",
+    "The header line must be exactly: fastener,stage,value,unit,sourceTitle,sourceUrl",
+    'Example row: "Front lower arm bolt",1,90,Nm,"Haynes Golf VII front suspension",https://example.com/page',
+    `Use only these torque units: Nm, lbf·ft, lbf·in, kgf·m. Return at most ${maxRows} rows. Leave stage empty when the source shows no stage. Quote any field that contains a comma, and copy each source URL exactly — a direct source page, not a search-result URL. Reply with the header line alone when no reliable result is found.`,
   ].join("\n");
 }
 
@@ -146,6 +147,29 @@ function citationSources(value: unknown, content: string): TorqueSearchSource[] 
   return sources;
 }
 
+function csvCandidates(rows: TorqueCsvRow[], sources: TorqueSearchSource[]): TorqueSearchCandidate[] {
+  const byUrl = new Map(sources.map(source => [source.url, source]));
+  const candidates = new Map<string, TorqueSearchCandidate>();
+  for (const row of rows) {
+    const requestedUrl = safeSourceUrl(row.sourceUrl);
+    const source = (requestedUrl && byUrl.get(canonicalSourceUrl(requestedUrl)))
+      || (row.sourceTitle && sources.find(item => item.title.toLowerCase() === row.sourceTitle!.toLowerCase()))
+      || (sources.length === 1 ? sources[0] : undefined);
+    // A row without a page behind it cannot be reviewed, so it is left out.
+    if (!source) continue;
+    const key = `${row.fastener.toLowerCase()}|${row.stage.toLowerCase()}|${row.value}|${row.unit}`;
+    const existing = candidates.get(key);
+    if (existing) { existing.mentions += 1; continue; }
+    candidates.set(key, {
+      fastener: row.fastener, stage: row.stage, value: row.value, unit: row.unit,
+      sourceTitle: source.title, sourceUrl: source.url,
+      snippet: cleanText(row.snippet ?? source.snippet, 300), mentions: 1,
+    });
+    if (candidates.size >= maxRows) break;
+  }
+  return [...candidates.values()].sort((a, b) => a.fastener.localeCompare(b.fastener));
+}
+
 function normalizeCandidates(value: unknown, sources: TorqueSearchSource[]): TorqueSearchCandidate[] {
   if (!Array.isArray(value)) return [];
   const knownSources = new Map(sources.map(source => [source.url, source]));
@@ -242,11 +266,14 @@ export async function searchTorqueSpecs(vehicle: SearchVehicle): Promise<TorqueS
   if (cached && Date.now() - cached.at < cacheTtl) return { ...cached.data, cached: true };
 
   const reply = await askGroq(vehicle);
-  const parsed = parseJsonObject(reply.content);
-  if (!parsed) fail(502, "Groq did not return torque results in the expected format. Try again.");
+  // The answer is asked for as CSV; an older JSON answer is still read.
+  const csv = parseTorqueCsv(reply.content);
+  const parsed = csv.length ? null : parseJsonObject(reply.content);
+  if (!csv.length && !parsed) fail(502, "Groq did not return torque results in the expected format. Try again.");
 
-  const results = normalizeSources(parsed.results, parsed.sources, reply.sources, citationSources(parsed.citations, reply.content));
-  const candidates = normalizeCandidates(parsed.candidates ?? parsed.torques, results);
+  const cited = csv.map(row => ({ title: row.sourceTitle || "", url: row.sourceUrl || "", snippet: row.snippet || "" }));
+  const results = normalizeSources(cited, parsed?.results, parsed?.sources, reply.sources, parsed ? citationSources(parsed.citations, reply.content) : []);
+  const candidates = csv.length ? csvCandidates(csv, results) : normalizeCandidates(parsed?.candidates ?? parsed?.torques, results);
   const data: TorqueSearchResponse = {
     query,
     provider: "Groq browser search",
