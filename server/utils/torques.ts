@@ -108,6 +108,9 @@ function carryForward(spec: TorqueSpec, prior?: TorqueSpec): TorqueSpec {
   if (addedBy) carried.addedBy = addedBy;
   const addedAt = prior.addedAt ?? spec.addedAt;
   if (addedAt) carried.addedAt = addedAt;
+  // The same number checked against an authoritative source stays checked.
+  if (prior.checkedBy) carried.checkedBy = prior.checkedBy;
+  if (prior.checkedAt) carried.checkedAt = prior.checkedAt;
   return carried;
 }
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, CarFront, Clock, Download, ExternalLink, Loader2, Package, Pencil, Plus, Printer, RefreshCw, Search, Sparkles, Trash2, FileText, Globe, Wrench } from "lucide-react";
+import { BookOpen, CarFront, Clock, Download, ExternalLink, Loader2, Package, Pencil, Plus, Printer, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, FileText, Globe, Wrench } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,17 +29,23 @@ function torqueHost(origin: TorqueOrigin) {
 }
 
 /*
- * Where a torque row came from. The page is a link when the lookup cited one;
- * otherwise the lookup itself is named. Either way the row says who added it.
+ * Where a torque row came from, and whether a person confirmed it against an
+ * authorised source. The page is a link when the lookup cited one; otherwise the
+ * lookup itself is named. The row always says who added it.
  */
-function TorqueSource({ spec, className = "" }: { spec: TorqueSpec; className?: string }) {
+function TorqueSource({ spec, canEdit, busy, onToggle, className = "" }: { spec: TorqueSpec; canEdit?: boolean; busy?: boolean; onToggle?: () => void; className?: string }) {
   const origin = spec.origin;
   const added = [spec.addedBy || (spec.addedAt ? "Unknown" : ""), spec.addedAt ? prettyDate(spec.addedAt) : ""].filter(Boolean).join(" · ");
-  if (!origin && !added) return null;
+  const checkable = Boolean(canEdit && onToggle);
+  if (!origin && !added && !spec.checkedAt && !checkable) return null;
   return <div className={`text-[10px] leading-4 text-muted-foreground ${className}`}>
     {origin?.url ? <a href={origin.url} target="_blank" rel="noopener noreferrer" title={origin.title || origin.url} className="inline-flex max-w-full items-center gap-1 font-semibold text-primary hover:underline"><span className="truncate">{torqueHost(origin)}</span><ExternalLink size={10} className="shrink-0" /></a>
       : origin ? <span className="font-semibold">{origin.provider || origin.title || "No page cited"}</span> : null}
     {added ? <p className="mt-0.5">Added by {added}</p> : null}
+    {spec.checkedAt
+      ? <p className="mt-1 inline-flex flex-wrap items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-700"><ShieldCheck size={11} className="shrink-0" />Checked{spec.checkedBy ? ` by ${spec.checkedBy}` : ""} · {prettyDate(spec.checkedAt)}{checkable && <button type="button" disabled={busy} onClick={onToggle} className="font-normal underline decoration-dotted hover:text-emerald-900 disabled:opacity-60">unmark</button>}</p>
+      : checkable ? <button type="button" disabled={busy} onClick={onToggle} className="mt-1 inline-flex items-center gap-1 font-semibold text-primary hover:underline disabled:opacity-60">{busy ? <Loader2 size={11} className="animate-spin" /> : <ShieldCheck size={11} />}Mark checked</button>
+        : null}
   </div>;
 }
 
@@ -48,6 +54,7 @@ export default function RecordDetail({ target, data, close, edit, remove, upload
   const [torqueDraft, setTorqueDraft] = useState<TorqueDraftRow[] | null>(null);
   const [torqueBusy, setTorqueBusy] = useState(false);
   const [torqueError, setTorqueError] = useState("");
+  const [checkingTorque, setCheckingTorque] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [pasteTorqueOpen, setPasteTorqueOpen] = useState(false);
   const [geminiOpen, setGeminiOpen] = useState(false);
@@ -117,6 +124,21 @@ export default function RecordDetail({ target, data, close, edit, remove, upload
     catch (e) { toast.error((e as Error).message); }
     finally { setRefreshing(false); }
   }
+  async function toggleCheck(spec: TorqueSpec) {
+    if (!vehicle) return;
+    setCheckingTorque(`${spec.fastener}\u0000${spec.stage}`);
+    try {
+      await api("torques", {
+        vehicleId: vehicle.id,
+        action: spec.checkedAt ? "uncheck" : "check",
+        fastener: spec.fastener,
+        stage: spec.stage,
+      });
+      await refresh();
+      toast.success(spec.checkedAt ? "Check removed" : "Marked as checked against an authorised source");
+    } catch (e) { toast.error((e as Error).message); }
+    finally { setCheckingTorque(""); }
+  }
   function startTorques() {
     if (!vehicle) return;
     setTorqueError("");
@@ -180,7 +202,11 @@ export default function RecordDetail({ target, data, close, edit, remove, upload
       </div> : vehicle.torqueSpecs?.length ? <div className="overflow-hidden rounded-xl border border-border">
         <table className="w-full text-left text-xs">
           <thead className="bg-background/70 text-[10px] uppercase tracking-wide text-muted-foreground"><tr><th className="px-4 py-2 font-semibold">Fastener</th><th className="w-24 px-3 py-2 font-semibold">Stage</th><th className="w-28 px-4 py-2 text-right font-semibold">Torque</th><th className="hidden px-3 py-2 font-semibold sm:table-cell">Source</th></tr></thead>
-          <tbody className="divide-y divide-border">{vehicle.torqueSpecs.map((spec, index) => <tr key={`${spec.fastener}-${spec.stage}-${index}`}><td className="break-words px-4 py-2.5 align-top">{spec.fastener}<TorqueSource spec={spec} className="mt-1 sm:hidden" /></td><td className="px-3 py-2.5 align-top text-muted-foreground">{spec.stage ? `Stage ${spec.stage}` : "—"}</td><td className="whitespace-nowrap px-4 py-2.5 text-right align-top font-semibold text-primary">{spec.value} {spec.unit}</td><td className="hidden px-3 py-2.5 align-top sm:table-cell"><TorqueSource spec={spec} /></td></tr>)}</tbody>
+          <tbody className="divide-y divide-border">{vehicle.torqueSpecs.map((spec, index) => {
+          const busy = checkingTorque === `${spec.fastener}\u0000${spec.stage}`;
+          const toggle = () => void toggleCheck(spec);
+          return <tr key={`${spec.fastener}-${spec.stage}-${index}`}><td className="break-words px-4 py-2.5 align-top">{spec.fastener}<TorqueSource spec={spec} canEdit={canEdit} busy={busy} onToggle={toggle} className="mt-1 sm:hidden" /></td><td className="px-3 py-2.5 align-top text-muted-foreground">{spec.stage ? `Stage ${spec.stage}` : "—"}</td><td className="whitespace-nowrap px-4 py-2.5 text-right align-top font-semibold text-primary">{spec.value} {spec.unit}</td><td className="hidden px-3 py-2.5 align-top sm:table-cell"><TorqueSource spec={spec} canEdit={canEdit} busy={busy} onToggle={toggle} /></td></tr>;
+        })}</tbody>
         </table>
       </div> : <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">No tightening torques recorded yet. Paste a torque table from the program or add rows here.</p>}
       {vehicle.torqueSpecsUpdatedAt && !torqueDraft && <p className="mt-2 text-[10px] text-muted-foreground">Updated {prettyDate(vehicle.torqueSpecsUpdatedAt)}</p>}

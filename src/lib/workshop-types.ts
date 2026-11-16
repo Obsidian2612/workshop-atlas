@@ -43,6 +43,8 @@ export interface TorqueSpec {
   fastener: string; stage: string; value: number; unit: TorqueUnit;
   origin?: TorqueOrigin;
   addedBy?: string; addedAt?: string;
+  /** Set when a person checked the value against an authorised source. */
+  checkedBy?: string; checkedAt?: string;
 }
 export interface TorqueSearchCandidate extends TorqueSpec { sourceTitle: string; sourceUrl: string; snippet: string; mentions: number }
 export interface TorqueSearchSource { title: string; url: string; snippet: string }
