@@ -45,6 +45,8 @@ export interface TorqueSpec {
   addedBy?: string; addedAt?: string;
   /** Set when a person checked the value against an authorised source. */
   checkedBy?: string; checkedAt?: string;
+  /** What they checked it against, e.g. an OEM sheet or a workshop manual. */
+  checkedAgainst?: string;
 }
 export interface TorqueSearchCandidate extends TorqueSpec { sourceTitle: string; sourceUrl: string; snippet: string; mentions: number }
 export interface TorqueSearchSource { title: string; url: string; snippet: string }

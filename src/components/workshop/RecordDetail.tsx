@@ -19,6 +19,7 @@ import type { EditorTarget } from "./RecordEditor";
 import { toast } from "sonner";
 import JobSheet from "./JobSheet";
 import OrderSheet from "./OrderSheet";
+import TorqueCheck from "./TorqueCheck";
 import { supplierSearchUrl, supplierVehicleUrl, supplierVinUrl, vehicleQuery, webSearchUrl } from "@/lib/supplier-search";
 export type DetailTarget = { entity: "vehicle" | "record"; id: string };
 const vinLabels: Record<string, string> = { make: "make", model: "model", year: "year", engine: "engine / variant", engineModel: "engine model" };
@@ -34,17 +35,20 @@ function torqueHost(origin: TorqueOrigin) {
  * authorised source. The page is a link when the lookup cited one; otherwise the
  * lookup itself is named. The row always says who added it.
  */
-function TorqueSource({ spec, canEdit, busy, onToggle, className = "" }: { spec: TorqueSpec; canEdit?: boolean; busy?: boolean; onToggle?: () => void; className?: string }) {
+function TorqueSource({ spec, canEdit, busy, onCheck, onUncheck }: { spec: TorqueSpec; canEdit?: boolean; busy?: boolean; onCheck?: () => void; onUncheck?: () => void }) {
   const { origin } = spec;
-  const checkable = Boolean(canEdit && onToggle);
+  const checkable = Boolean(canEdit && onCheck && onUncheck);
   if (!origin && !spec.addedAt && !spec.checkedAt && !checkable) return null;
-  return <div className={`text-[10px] leading-4 text-muted-foreground ${className}`}>
+  return <div className="text-[10px] leading-4 text-muted-foreground">
     {origin?.url ? <a href={origin.url} target="_blank" rel="noopener noreferrer" title={origin.title || origin.url} className="inline-flex max-w-full items-center gap-1 font-semibold text-primary hover:underline"><span className="truncate">{torqueHost(origin)}</span><ExternalLink size={10} className="shrink-0" /></a>
       : origin ? <span className="font-semibold">{origin.provider || origin.title}</span> : null}
     {spec.addedAt ? <p className="mt-0.5">Added by {spec.addedBy} · {prettyDate(spec.addedAt)}</p> : null}
     {spec.checkedAt
-      ? <p className="mt-1 inline-flex flex-wrap items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-700"><ShieldCheck size={11} className="shrink-0" />Checked by {spec.checkedBy} · {prettyDate(spec.checkedAt)}{checkable && <button type="button" disabled={busy} onClick={onToggle} className="font-normal underline decoration-dotted hover:text-emerald-900 disabled:opacity-60">unmark</button>}</p>
-      : checkable ? <button type="button" disabled={busy} onClick={onToggle} className="mt-1 inline-flex items-center gap-1 font-semibold text-primary hover:underline disabled:opacity-60">{busy ? <Loader2 size={11} className="animate-spin" /> : <ShieldCheck size={11} />}Mark checked</button>
+      ? <div className="mt-1">
+        <p className="inline-flex flex-wrap items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-700"><ShieldCheck size={11} className="shrink-0" />Checked by {spec.checkedBy} · {prettyDate(spec.checkedAt)}{checkable && <button type="button" disabled={busy} onClick={onUncheck} className="font-normal underline decoration-dotted hover:text-emerald-900 disabled:opacity-60">{busy ? <Loader2 size={10} className="animate-spin" /> : "unmark"}</button>}</p>
+        {spec.checkedAgainst ? <p className="mt-0.5">Against {spec.checkedAgainst}</p> : null}
+      </div>
+      : checkable ? <button type="button" onClick={onCheck} className="mt-1 inline-flex items-center gap-1 font-semibold text-primary hover:underline"><ShieldCheck size={11} />Mark checked</button>
         : null}
   </div>;
 }
@@ -54,7 +58,8 @@ export default function RecordDetail({ target, data, close, edit, remove, upload
   const [torqueDraft, setTorqueDraft] = useState<TorqueDraftRow[] | null>(null);
   const [torqueBusy, setTorqueBusy] = useState(false);
   const [torqueError, setTorqueError] = useState("");
-  const [checkingTorque, setCheckingTorque] = useState<number | null>(null);
+  const [unchecking, setUnchecking] = useState<number | null>(null);
+  const [checkTarget, setCheckTarget] = useState<TorqueSpec | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [pasteTorqueOpen, setPasteTorqueOpen] = useState(false);
   const [geminiOpen, setGeminiOpen] = useState(false);
@@ -127,20 +132,15 @@ export default function RecordDetail({ target, data, close, edit, remove, upload
     catch (e) { toast.error((e as Error).message); }
     finally { setRefreshing(false); }
   }
-  async function toggleCheck(spec: TorqueSpec, index: number) {
+  async function uncheckTorque(spec: TorqueSpec, index: number) {
     if (!vehicle) return;
-    setCheckingTorque(index);
+    setUnchecking(index);
     try {
-      await api("torques", {
-        vehicleId: vehicle.id,
-        action: spec.checkedAt ? "uncheck" : "check",
-        fastener: spec.fastener,
-        stage: spec.stage,
-      });
+      await api("torques", { vehicleId: vehicle.id, action: "uncheck", fastener: spec.fastener, stage: spec.stage });
       await refresh();
-      toast.success(spec.checkedAt ? "Check removed" : "Marked as checked against an authorised source");
+      toast.success("Check removed");
     } catch (e) { toast.error((e as Error).message); }
-    finally { setCheckingTorque(null); }
+    finally { setUnchecking(null); }
   }
   function startTorques() {
     if (!vehicle) return;
@@ -209,9 +209,8 @@ export default function RecordDetail({ target, data, close, edit, remove, upload
         <table className="w-full text-left text-xs">
           <thead className="bg-background/70 text-[10px] uppercase tracking-wide text-muted-foreground"><tr><th className="px-4 py-2 font-semibold">Fastener</th><th className="w-24 px-3 py-2 font-semibold">Stage</th><th className="w-28 px-4 py-2 text-right font-semibold">Torque</th><th className="hidden px-3 py-2 font-semibold sm:table-cell">Source</th></tr></thead>
           <tbody className="divide-y divide-border">{vehicle.torqueSpecs.map((spec, index) => {
-          const busy = checkingTorque === index;
-          const toggle = () => void toggleCheck(spec, index);
-          return <tr key={`${spec.fastener}-${spec.stage}-${index}`}><td className="break-words px-4 py-2.5 align-top">{spec.fastener}<TorqueSource spec={spec} canEdit={canEdit} busy={busy} onToggle={toggle} className="mt-1 sm:hidden" /></td><td className="px-3 py-2.5 align-top text-muted-foreground">{spec.stage ? `Stage ${spec.stage}` : "—"}</td><td className="whitespace-nowrap px-4 py-2.5 text-right align-top font-semibold text-primary">{spec.value} {spec.unit}</td><td className="hidden px-3 py-2.5 align-top sm:table-cell"><TorqueSource spec={spec} canEdit={canEdit} busy={busy} onToggle={toggle} /></td></tr>;
+          const source = <TorqueSource spec={spec} canEdit={canEdit} busy={unchecking === index} onCheck={() => setCheckTarget(spec)} onUncheck={() => void uncheckTorque(spec, index)} />;
+          return <tr key={`${spec.fastener}-${spec.stage}-${index}`}><td className="break-words px-4 py-2.5 align-top">{spec.fastener}<div className="mt-1 sm:hidden">{source}</div></td><td className="px-3 py-2.5 align-top text-muted-foreground">{spec.stage ? `Stage ${spec.stage}` : "—"}</td><td className="whitespace-nowrap px-4 py-2.5 text-right align-top font-semibold text-primary">{spec.value} {spec.unit}</td><td className="hidden px-3 py-2.5 align-top sm:table-cell">{source}</td></tr>;
         })}</tbody>
         </table>
       </div> : <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">No tightening torques recorded yet. Paste a torque table from the program or add rows here.</p>}
@@ -224,5 +223,5 @@ export default function RecordDetail({ target, data, close, edit, remove, upload
       {record ? record.kind === "service" ? <Button variant="outline" disabled={!vehicle} onClick={() => setSheetOpen(true)} className="h-10 rounded-lg text-xs"><Printer size={15} className="mr-2" />Print job sheet</Button> : null : serviceRecords.length ? <Button variant="outline" disabled={!vehicle} onClick={() => setSheetOpen(true)} className="h-10 rounded-lg text-xs"><Printer size={15} className="mr-2" />Print service history</Button> : <span className="text-xs text-muted-foreground">No service entries to print yet</span>}
       {canEdit ? <div className="flex gap-2"><Button variant="ghost" className="rounded-lg text-destructive hover:bg-destructive/5 hover:text-destructive" onClick={() => remove(target.entity, item.id, title)}><Trash2 size={15} className="mr-2" />Delete</Button><Button className="rounded-lg px-5" onClick={() => edit(record ? { entity: "record", kind: record.kind, value: record } : { entity: "vehicle", value: vehicle })}><Pencil size={15} className="mr-2" />Edit record</Button></div> : <span />}
     </div>
-  </DialogContent></Dialog>{searchOpen && vehicle && <TorqueSearch vehicle={vehicle} close={() => setSearchOpen(false)} onPaste={() => { setSearchOpen(false); setPasteTorqueOpen(true); }} refresh={refresh} />}{pasteTorqueOpen && vehicle && <PasteTimes data={data} defaultVehicleId={vehicle.id} close={() => setPasteTorqueOpen(false)} refresh={refresh} />}{geminiOpen && vehicle && <GeminiSearch vehicle={vehicle} close={() => setGeminiOpen(false)} refresh={refresh} />}{groqSpecsOpen && vehicle && <GroqSpecs vehicle={vehicle} close={() => setGroqSpecsOpen(false)} refresh={refresh} />}{groqTimesOpen && vehicle && <GroqRepairTimes vehicle={vehicle} close={() => setGroqTimesOpen(false)} refresh={refresh} />}{manualOpen && vehicle && <ManualRepairTimes vehicle={vehicle} data={data} entry={manualEdit} close={() => setManualOpen(false)} refresh={refresh} />}{sheetOpen && vehicle && <JobSheet workshop={data.name} user={data.user} vehicle={vehicle} entry={record} history={serviceRecords} close={() => setSheetOpen(false)} />}{orderOpen && vehicle && <OrderSheet workshop={data.name} user={data.user} vehicle={vehicle} parts={vehicleParts} suppliers={data.suppliers} close={() => setOrderOpen(false)} />}</>;
+  </DialogContent></Dialog>{searchOpen && vehicle && <TorqueSearch vehicle={vehicle} close={() => setSearchOpen(false)} onPaste={() => { setSearchOpen(false); setPasteTorqueOpen(true); }} refresh={refresh} />}{pasteTorqueOpen && vehicle && <PasteTimes data={data} defaultVehicleId={vehicle.id} close={() => setPasteTorqueOpen(false)} refresh={refresh} />}{geminiOpen && vehicle && <GeminiSearch vehicle={vehicle} close={() => setGeminiOpen(false)} refresh={refresh} />}{groqSpecsOpen && vehicle && <GroqSpecs vehicle={vehicle} close={() => setGroqSpecsOpen(false)} refresh={refresh} />}{groqTimesOpen && vehicle && <GroqRepairTimes vehicle={vehicle} close={() => setGroqTimesOpen(false)} refresh={refresh} />}{manualOpen && vehicle && <ManualRepairTimes vehicle={vehicle} data={data} entry={manualEdit} close={() => setManualOpen(false)} refresh={refresh} />}{sheetOpen && vehicle && <JobSheet workshop={data.name} user={data.user} vehicle={vehicle} entry={record} history={serviceRecords} close={() => setSheetOpen(false)} />}{checkTarget && vehicle && <TorqueCheck vehicle={vehicle} spec={checkTarget} close={() => setCheckTarget(null)} refresh={refresh} />}{orderOpen && vehicle && <OrderSheet workshop={data.name} user={data.user} vehicle={vehicle} parts={vehicleParts} suppliers={data.suppliers} close={() => setOrderOpen(false)} />}</>;
 }

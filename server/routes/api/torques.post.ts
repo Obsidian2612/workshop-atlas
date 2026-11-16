@@ -13,6 +13,8 @@ export default defineHandler(async event => {
   const checking = action === "check" || action === "uncheck";
   const fastener = checking && typeof body.fastener === "string" ? body.fastener.replace(/\s+/g, " ").trim() : "";
   const stage = checking && typeof body.stage === "string" ? body.stage.replace(/\s+/g, " ").trim().slice(0, 40) : "";
+  // What the check was made against is a short note, not a document.
+  const against = checking && typeof body.against === "string" ? body.against.replace(/\s+/g, " ").trim().slice(0, 160) : "";
   if (checking && (fastener.length < 2 || fastener.length > 200)) fail(400, "Choose the torque row to mark as checked");
   const specs = checking ? [] : sanitizeTorqueSpecs(body.specs);
 
@@ -28,9 +30,12 @@ export default defineHandler(async event => {
       if (action === "check") {
         row.checkedBy = user.name;
         row.checkedAt = new Date().toISOString();
+        if (against) row.checkedAgainst = against;
+        else delete row.checkedAgainst;
       } else {
         delete row.checkedBy;
         delete row.checkedAt;
+        delete row.checkedAgainst;
       }
       vehicle.torqueSpecsUpdatedAt = new Date().toISOString();
       logActivity(db, user, `${action === "check" ? "Checked" : "Unchecked"} the ${row.fastener} torque on ${label}`);

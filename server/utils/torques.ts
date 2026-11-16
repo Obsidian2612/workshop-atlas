@@ -113,6 +113,7 @@ function carryForward(spec: TorqueSpec, prior?: TorqueSpec): TorqueSpec {
   if (prior.checkedAt) {
     carried.checkedBy = prior.checkedBy;
     carried.checkedAt = prior.checkedAt;
+    carried.checkedAgainst = prior.checkedAgainst;
   }
   return carried;
 }
