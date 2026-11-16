@@ -31,7 +31,19 @@ export interface ManualRepairTimeRow { operation: string; minutes: number; scope
 export interface GeminiTorqueRow extends TorqueSpec { vin: string }
 export const torqueUnits = ["Nm", "lbf·ft", "lbf·in", "kgf·m"] as const;
 export type TorqueUnit = (typeof torqueUnits)[number];
-export interface TorqueSpec { fastener: string; stage: string; value: number; unit: TorqueUnit }
+/** Where a tightening torque came from, and who put it on the vehicle. */
+export interface TorqueOrigin {
+  /** The page the value was read from; empty when the lookup cited no page. */
+  url: string;
+  title: string;
+  /** Which lookup produced the value, e.g. "Groq web search" or "Pasted table". */
+  provider: string;
+}
+export interface TorqueSpec {
+  fastener: string; stage: string; value: number; unit: TorqueUnit;
+  origin?: TorqueOrigin;
+  addedBy?: string; addedAt?: string;
+}
 export interface TorqueSearchCandidate extends TorqueSpec { sourceTitle: string; sourceUrl: string; snippet: string; mentions: number }
 export interface TorqueSearchSource { title: string; url: string; snippet: string }
 export interface TorqueSearchResponse { query: string; provider: string; results: TorqueSearchSource[]; candidates: TorqueSearchCandidate[]; fetched: number; cached?: boolean }

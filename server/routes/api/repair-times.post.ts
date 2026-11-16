@@ -7,7 +7,7 @@ import { dataDir, fail, filename, logActivity, requireUser, transact, text } fro
 import { importRepairTimes, parseRepairTimeImport, refreshVehicleRepairTimes, applySheetRepairTimes, cleanManualRepairTime, parseManualRepairTimeCsv, removeManualRepairTime, saveManualRepairTime, saveManualRepairTimes } from "../../utils/repair-times";
 import { parseRepairSheet, parseRepairText } from "../../utils/repair-sheet";
 import { parseVehicleIdentification } from "../../utils/vehicle-sheet";
-import { mergeTorqueSpecs, parseTorqueText } from "../../utils/torques";
+import { mergeTorqueSpecs, parseTorqueText, stampTorqueSpecs } from "../../utils/torques";
 
 const pdfLimit = 10 * 1024 * 1024;
 export default defineHandler(async event => {
@@ -105,7 +105,7 @@ export default defineHandler(async event => {
         const vehicle = db.vehicles.find(item => item.id === vehicleId);
         if (!vehicle) fail(404, "That vehicle is not in this workshop");
         if (torques.length) {
-          vehicle.torqueSpecs = mergeTorqueSpecs(vehicle.torqueSpecs || [], torques);
+          vehicle.torqueSpecs = stampTorqueSpecs(mergeTorqueSpecs(vehicle.torqueSpecs || [], torques), user.name);
           vehicle.torqueSpecsUpdatedAt = new Date().toISOString();
         }
         const label = `${vehicle.make} ${vehicle.model}`.trim() || "a vehicle";

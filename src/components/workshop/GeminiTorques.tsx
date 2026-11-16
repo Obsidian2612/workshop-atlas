@@ -72,7 +72,12 @@ export default function GeminiTorques({ vehicle, close, refresh }: { vehicle: Ve
       await api("torques", {
         vehicleId: vehicle.id,
         action: "merge",
-        specs: chosen.map(({ fastener, stage, value, unit }) => ({ fastener, stage, value, unit })),
+        // Gemini is answered from its own knowledge and cites no page, so only the
+        // lookup itself is recorded.
+        specs: chosen.map(({ fastener, stage, value, unit }) => ({
+          fastener, stage, value, unit,
+          origin: { title: "", url: "", provider: "Gemini" },
+        })),
       });
       await refresh();
       toast.success(`Added ${chosen.length} tightening torque${chosen.length === 1 ? "" : "s"} from Gemini`);

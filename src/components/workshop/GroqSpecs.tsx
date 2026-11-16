@@ -84,7 +84,12 @@ export default function GroqSpecs({ vehicle, close, refresh }: { vehicle: Vehicl
         apply: true,
         identification: sheet.identification,
         sections: chosen,
-        torques: torquesOn ? sheet.torques : [],
+        // The sheet carries its sources as a list, not one per fastener, so the
+        // lookup is recorded without pretending a single page backs every row.
+        torques: torquesOn ? sheet.torques.map(({ fastener, stage, value, unit }) => ({
+          fastener, stage, value, unit,
+          origin: { title: "", url: "", provider: "Groq specifications" },
+        })) : [],
         repairTimes: timesOn ? sheet.repairTimes : [],
       });
       await refresh();

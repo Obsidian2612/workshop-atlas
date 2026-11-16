@@ -1,7 +1,7 @@
 import { defineHandler } from "nitro";
 import { readBody } from "nitro/h3";
 import { fail, logActivity, requireUser, transact } from "../../utils/store";
-import { sanitizeTorqueSpecs, mergeTorqueSpecs } from "../../utils/torques";
+import { sanitizeTorqueSpecs, mergeTorqueSpecs, stampTorqueSpecs } from "../../utils/torques";
 import { cleanRepairTimeRows, mergeRepairTimes } from "../../utils/groq-repair-times";
 import { cleanSpecSections, formatSpecSheet, searchVehicleSpec } from "../../utils/groq-vehicle-spec";
 
@@ -82,7 +82,7 @@ export default defineHandler(async event => {
       }
 
       if (torques.length) {
-        vehicle.torqueSpecs = mergeTorqueSpecs(vehicle.torqueSpecs || [], torques);
+        vehicle.torqueSpecs = stampTorqueSpecs(mergeTorqueSpecs(vehicle.torqueSpecs || [], torques), user.name);
         vehicle.torqueSpecsUpdatedAt = new Date().toISOString();
       }
       // Only fill identity fields the workshop never recorded; the reader's data wins.

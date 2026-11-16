@@ -51,7 +51,11 @@ export default function TorqueSearch({ vehicle, close, refresh, onPaste }: { veh
       await api("torques", {
         vehicleId: vehicle.id,
         action: "merge",
-        specs: chosen.map(({ fastener, stage, value, unit }) => ({ fastener, stage, value, unit })),
+        // The cited page travels with the row so the value stays traceable.
+        specs: chosen.map(({ fastener, stage, value, unit, sourceTitle, sourceUrl }) => ({
+          fastener, stage, value, unit,
+          origin: { title: sourceTitle, url: sourceUrl, provider: data.provider },
+        })),
       });
       await refresh();
       toast.success(`Added ${chosen.length} tightening torque row${chosen.length === 1 ? "" : "s"}`);

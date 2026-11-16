@@ -1,5 +1,5 @@
 import { fail } from "./store";
-import { torqueUnits, type TorqueSpec, type TorqueUnit } from "../../src/lib/workshop-types";
+import { torqueUnits, type TorqueOrigin, type TorqueSpec, type TorqueUnit } from "../../src/lib/workshop-types";
 
 /*
  * Tightening torques are copied from the licensed program the same way repair
@@ -51,6 +51,27 @@ export function cleanTorqueValue(value: unknown): number | null {
   return Math.round(numeric * 100) / 100;
 }
 
+/** Only a plain http(s) page can be linked back to; anything else is dropped. */
+function cleanPageUrl(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) return "";
+  try {
+    const url = new URL(value.trim());
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return "";
+    return url.toString().slice(0, 1000);
+  } catch { return ""; }
+}
+
+function cleanOrigin(value: unknown): TorqueOrigin | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const row = value as Record<string, unknown>;
+  const text = (field: unknown, length: number) => typeof field === "string" ? field.replace(/\s+/g, " ").trim().slice(0, length) : "";
+  const provider = text(row.provider, 60);
+  const title = text(row.title, 200);
+  const url = cleanPageUrl(row.url);
+  if (!provider && !title && !url) return undefined;
+  return { provider, title, url };
+}
+
 export function sanitizeTorqueSpecs(input: unknown): TorqueSpec[] {
   if (!Array.isArray(input)) fail(400, "Send the torque rows as a list");
   if (input.length > 200) fail(400, "Keep at most 200 torque rows per vehicle");
@@ -64,16 +85,56 @@ export function sanitizeTorqueSpecs(input: unknown): TorqueSpec[] {
     if (value === null) fail(400, `Torque row ${index + 1} needs a value between 0 and 2000`);
     const unit = normalizeTorqueUnit(row.unit);
     if (!unit) fail(400, `Torque row ${index + 1} needs a unit: ${torqueUnits.join(", ")}`);
-    return { fastener, stage, value, unit };
+    const spec: TorqueSpec = { fastener, stage, value, unit };
+    const origin = cleanOrigin(row.origin);
+    if (origin) spec.origin = origin;
+    return spec;
   });
+}
+
+const torqueKey = (spec: TorqueSpec) => `${spec.fastener.toLowerCase()}|${spec.stage.toLowerCase()}`;
+
+/*
+ * A row saved again with the same value keeps the page it came from and the
+ * person who added it. A changed value is a different number, so the old source
+ * no longer backs it and is dropped rather than left to mislead anyone.
+ */
+function carryForward(spec: TorqueSpec, prior?: TorqueSpec): TorqueSpec {
+  if (!prior || prior.value !== spec.value || prior.unit !== spec.unit) return spec;
+  const carried: TorqueSpec = { ...spec };
+  const origin = spec.origin ?? prior.origin;
+  if (origin) carried.origin = origin;
+  const addedBy = prior.addedBy ?? spec.addedBy;
+  if (addedBy) carried.addedBy = addedBy;
+  const addedAt = prior.addedAt ?? spec.addedAt;
+  if (addedAt) carried.addedAt = addedAt;
+  return carried;
 }
 
 /** Replace rows with the same fastener and stage, keeping the existing order. */
 export function mergeTorqueSpecs(existing: TorqueSpec[], incoming: TorqueSpec[]): TorqueSpec[] {
-  const key = (spec: TorqueSpec) => `${spec.fastener.toLowerCase()}|${spec.stage.toLowerCase()}`;
-  const merged = new Map(existing.map(spec => [key(spec), spec]));
-  for (const spec of incoming) merged.set(key(spec), spec);
+  const merged = new Map(existing.map(spec => [torqueKey(spec), spec]));
+  for (const spec of incoming) merged.set(torqueKey(spec), carryForward(spec, merged.get(torqueKey(spec))));
   return [...merged.values()];
+}
+
+/** A save that replaces the list still keeps the source of every untouched row. */
+export function preserveTorqueOrigins(existing: TorqueSpec[], incoming: TorqueSpec[]): TorqueSpec[] {
+  const prior = new Map(existing.map(spec => [torqueKey(spec), spec]));
+  return incoming.map(spec => carryForward(spec, prior.get(torqueKey(spec))));
+}
+
+/** Record who added the rows and when; rows that already carry a stamp keep it. */
+export function stampTorqueSpecs(specs: TorqueSpec[], author: string): TorqueSpec[] {
+  const at = new Date().toISOString();
+  const who = (author || "").replace(/\s+/g, " ").trim();
+  return specs.map(spec => {
+    const stamped: TorqueSpec = { ...spec };
+    const name = spec.addedBy || who;
+    if (name) stamped.addedBy = name;
+    if (!stamped.addedAt) stamped.addedAt = at;
+    return stamped;
+  });
 }
 
 const unitMatchers: { pattern: RegExp; unit: TorqueUnit }[] = [
@@ -242,7 +303,13 @@ export function parseTorqueText(source: string): TorqueSpec[] {
   // A pasted CSV table — including one an AI wrote — is read by its headings, so a
   // comma inside a fastener name does not swallow the stage.
   const table = parseTorqueCsv(source);
-  if (table.length) return table.map(({ fastener, stage, value, unit }) => ({ fastener, stage, value, unit }));
+  if (table.length) return table.map(row => {
+    const spec: TorqueSpec = { fastener: row.fastener, stage: row.stage, value: row.value, unit: row.unit };
+    // A pasted table may carry the page it was copied from; keep it with the row.
+    const origin = cleanOrigin({ title: row.sourceTitle, url: row.sourceUrl, provider: "Pasted table" });
+    if (origin) spec.origin = origin;
+    return spec;
+  });
   const lines = source
     .replace(/\r\n?/g, "\n")
     .replace(/\u00a0/g, " ")

@@ -1,7 +1,7 @@
 import { defineHandler } from "nitro";
 import { readBody } from "nitro/h3";
 import { fail, logActivity, requireUser, transact } from "../../utils/store";
-import { mergeTorqueSpecs, sanitizeTorqueSpecs } from "../../utils/torques";
+import { mergeTorqueSpecs, preserveTorqueOrigins, sanitizeTorqueSpecs, stampTorqueSpecs } from "../../utils/torques";
 
 export default defineHandler(async event => {
   const body = await readBody<Record<string, unknown>>(event);
@@ -14,7 +14,10 @@ export default defineHandler(async event => {
     const user = requireUser(db, event.req, "write");
     const vehicle = db.vehicles.find(item => item.id === vehicleId);
     if (!vehicle) fail(404, "That vehicle is not in this workshop");
-    vehicle.torqueSpecs = merge ? mergeTorqueSpecs(vehicle.torqueSpecs || [], specs) : specs;
+    vehicle.torqueSpecs = stampTorqueSpecs(
+      merge ? mergeTorqueSpecs(vehicle.torqueSpecs || [], specs) : preserveTorqueOrigins(vehicle.torqueSpecs || [], specs),
+      user.name,
+    );
     vehicle.torqueSpecsUpdatedAt = new Date().toISOString();
     logActivity(db, user, `Updated tightening torques for ${`${vehicle.make} ${vehicle.model}`.trim() || "a vehicle"}`);
     return { vehicleId, specs: vehicle.torqueSpecs };
