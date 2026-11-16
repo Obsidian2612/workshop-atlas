@@ -38,6 +38,7 @@ export default function JobSheet({ workshop, user, vehicle, entry, history, clos
   const [extras, setExtras] = useState(false);
   const repairTimes = vehicle.repairTimes || [];
   const torques = vehicle.torqueSpecs || [];
+  const checkedTorques = torques.filter(spec => spec.checkedAt).length;
   const hasExtras = repairTimes.length > 0 || torques.length > 0;
   const printed = new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   const title = vehicle.make || vehicle.model ? `${vehicle.make} ${vehicle.model}`.trim() : "Vehicle";
@@ -206,13 +207,14 @@ export default function JobSheet({ workshop, user, vehicle, entry, history, clos
 
           {torques.length > 0 && (
             <section className="mt-5">
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-black">Tightening torques ({torques.length})</h3>
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-black">Tightening torques ({torques.length}{checkedTorques ? ` · ${checkedTorques} checked` : ""})</h3>
               <table className="mt-2 w-full border-collapse text-left text-[10px]">
                 <thead>
                   <tr className="border-b border-neutral-400 text-[9px] uppercase tracking-[0.08em] text-neutral-500">
                     <th className="py-2 pr-3 font-semibold">Fastener</th>
-                    <th className="w-[18%] py-2 pr-3 font-semibold">Stage</th>
-                    <th className="w-[16%] py-2 text-right font-semibold">Torque</th>
+                    <th className="w-[15%] py-2 pr-3 font-semibold">Stage</th>
+                    <th className="w-[14%] py-2 pr-3 text-right font-semibold">Torque</th>
+                    <th className="w-[27%] py-2 font-semibold">Checked against</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -220,13 +222,18 @@ export default function JobSheet({ workshop, user, vehicle, entry, history, clos
                     <tr key={`${spec.fastener}-${spec.stage}-${index}`} className="keep border-b border-neutral-200 align-top">
                       <td className="py-2 pr-3 text-neutral-800">{spec.fastener}</td>
                       <td className="py-2 pr-3 text-neutral-600">{spec.stage ? `Stage ${spec.stage}` : "—"}</td>
-                      <td className="whitespace-nowrap py-2 text-right font-semibold text-black">{spec.value} {spec.unit}</td>
+                      <td className="whitespace-nowrap py-2 pr-3 text-right font-semibold text-black">{spec.value} {spec.unit}</td>
+                      <td className="py-2 align-top">
+                        {spec.checkedAt
+                          ? <span className="font-semibold text-black">✓ Checked{spec.checkedBy ? ` by ${spec.checkedBy}` : ""} · {prettyDate(spec.checkedAt)}</span>
+                          : <span className="text-neutral-500">Not checked — verify before use</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <p className="mt-1.5 text-[8px] text-neutral-400">
-                Verify tightening torques against the manufacturer's current data before use.
+                A checked row names the person who confirmed it and the date they did so. Every other row is an unverified lead — check it against the manufacturer's current data before use.
               </p>
             </section>
           )}
