@@ -92,52 +92,48 @@ export function sanitizeTorqueSpecs(input: unknown): TorqueSpec[] {
   });
 }
 
-const torqueKey = (spec: TorqueSpec) => `${spec.fastener.toLowerCase()}|${spec.stage.toLowerCase()}`;
+/** The identity of a torque row across lookups, edits and checks. */
+export function torqueRowKey(spec: Pick<TorqueSpec, "fastener" | "stage">): string {
+  return `${spec.fastener.toLowerCase()}|${spec.stage.toLowerCase()}`;
+}
 
 /*
  * A row saved again with the same value keeps the page it came from and the
- * person who added it. A changed value is a different number, so the old source
- * no longer backs it and is dropped rather than left to mislead anyone.
+ * people who added and checked it. A changed value is a different number, so the
+ * old provenance no longer backs it and is dropped rather than left to mislead.
  */
 function carryForward(spec: TorqueSpec, prior?: TorqueSpec): TorqueSpec {
   if (!prior || prior.value !== spec.value || prior.unit !== spec.unit) return spec;
   const carried: TorqueSpec = { ...spec };
   const origin = spec.origin ?? prior.origin;
   if (origin) carried.origin = origin;
-  const addedBy = prior.addedBy ?? spec.addedBy;
-  if (addedBy) carried.addedBy = addedBy;
-  const addedAt = prior.addedAt ?? spec.addedAt;
-  if (addedAt) carried.addedAt = addedAt;
-  // The same number checked against an authoritative source stays checked.
-  if (prior.checkedBy) carried.checkedBy = prior.checkedBy;
-  if (prior.checkedAt) carried.checkedAt = prior.checkedAt;
+  if (prior.addedBy) carried.addedBy = prior.addedBy;
+  if (prior.addedAt) carried.addedAt = prior.addedAt;
+  // A check is only ever set together with the date it was made.
+  if (prior.checkedAt) {
+    carried.checkedBy = prior.checkedBy;
+    carried.checkedAt = prior.checkedAt;
+  }
   return carried;
 }
 
-/** Replace rows with the same fastener and stage, keeping the existing order. */
+/** Add or update rows by fastener and stage, keeping the rows already on the vehicle. */
 export function mergeTorqueSpecs(existing: TorqueSpec[], incoming: TorqueSpec[]): TorqueSpec[] {
-  const merged = new Map(existing.map(spec => [torqueKey(spec), spec]));
-  for (const spec of incoming) merged.set(torqueKey(spec), carryForward(spec, merged.get(torqueKey(spec))));
+  const merged = new Map(existing.map(spec => [torqueRowKey(spec), spec]));
+  for (const spec of incoming) merged.set(torqueRowKey(spec), carryForward(spec, merged.get(torqueRowKey(spec))));
   return [...merged.values()];
 }
 
-/** A save that replaces the list still keeps the source of every untouched row. */
-export function preserveTorqueOrigins(existing: TorqueSpec[], incoming: TorqueSpec[]): TorqueSpec[] {
-  const prior = new Map(existing.map(spec => [torqueKey(spec), spec]));
-  return incoming.map(spec => carryForward(spec, prior.get(torqueKey(spec))));
+/** A full-list save: the rows sent become the list, repeating the history of any row it repeats. */
+export function replaceTorqueSpecs(existing: TorqueSpec[], incoming: TorqueSpec[]): TorqueSpec[] {
+  const prior = new Map(existing.map(spec => [torqueRowKey(spec), spec]));
+  return incoming.map(spec => carryForward(spec, prior.get(torqueRowKey(spec))));
 }
 
-/** Record who added the rows and when; rows that already carry a stamp keep it. */
+/** Record who added the rows and when; a row that already carries a stamp keeps it. */
 export function stampTorqueSpecs(specs: TorqueSpec[], author: string): TorqueSpec[] {
-  const at = new Date().toISOString();
-  const who = (author || "").replace(/\s+/g, " ").trim();
-  return specs.map(spec => {
-    const stamped: TorqueSpec = { ...spec };
-    const name = spec.addedBy || who;
-    if (name) stamped.addedBy = name;
-    if (!stamped.addedAt) stamped.addedAt = at;
-    return stamped;
-  });
+  const addedAt = new Date().toISOString();
+  return specs.map(spec => ({ addedBy: author, addedAt, ...spec }));
 }
 
 const unitMatchers: { pattern: RegExp; unit: TorqueUnit }[] = [
@@ -294,7 +290,7 @@ export function parseTorqueCsv(source: string): TorqueCsvRow[] {
     if (sourceTitle) spec.sourceTitle = sourceTitle;
     if (sourceUrl) spec.sourceUrl = sourceUrl;
     if (snippet) spec.snippet = snippet;
-    const key = `${fastener.toLowerCase()}|${spec.stage.toLowerCase()}`;
+    const key = torqueRowKey({ fastener, stage: spec.stage });
     const at = positions.get(key);
     if (at === undefined) { positions.set(key, specs.length); specs.push(spec); }
     else specs[at] = spec;
@@ -325,7 +321,7 @@ export function parseTorqueText(source: string): TorqueSpec[] {
   for (const line of lines) {
     const spec = parseTorqueLine(line);
     if (!spec) continue;
-    const key = `${spec.fastener.toLowerCase()}|${spec.stage.toLowerCase()}`;
+    const key = torqueRowKey(spec);
     const at = positions.get(key);
     if (at === undefined) { positions.set(key, specs.length); specs.push(spec); }
     else specs[at] = spec;

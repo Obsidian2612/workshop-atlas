@@ -214,7 +214,7 @@ export default function JobSheet({ workshop, user, vehicle, entry, history, clos
                     <th className="py-2 pr-3 font-semibold">Fastener</th>
                     <th className="w-[15%] py-2 pr-3 font-semibold">Stage</th>
                     <th className="w-[14%] py-2 pr-3 text-right font-semibold">Torque</th>
-                    <th className="w-[27%] py-2 font-semibold">Checked against</th>
+                    <th className="w-[27%] py-2 font-semibold">Checked by</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -225,15 +225,15 @@ export default function JobSheet({ workshop, user, vehicle, entry, history, clos
                       <td className="whitespace-nowrap py-2 pr-3 text-right font-semibold text-black">{spec.value} {spec.unit}</td>
                       <td className="py-2 align-top">
                         {spec.checkedAt
-                          ? <span className="font-semibold text-black">✓ Checked{spec.checkedBy ? ` by ${spec.checkedBy}` : ""} · {prettyDate(spec.checkedAt)}</span>
-                          : <span className="text-neutral-500">Not checked — verify before use</span>}
+                          ? <span className="font-semibold text-black">✓ {spec.checkedBy} · {prettyDate(spec.checkedAt)}</span>
+                          : <span className="text-neutral-500">Not checked</span>}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <p className="mt-1.5 text-[8px] text-neutral-400">
-                A checked row names the person who confirmed it and the date they did so. Every other row is an unverified lead — check it against the manufacturer's current data before use.
+                Rows marked checked were confirmed against an authorised source by the person and date shown. Every other row is an unverified lead — check it against the manufacturer's current data before use.
               </p>
             </section>
           )}
