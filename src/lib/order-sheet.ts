@@ -20,13 +20,6 @@ const supplierOrder = (a: string, b: string) => !a ? (b ? 1 : 0) : !b ? -1 : a.l
 /** Quantity boxes take digits only, so an empty box means one. */
 export const quantity = (value: string) => Math.max(1, Number(value) || 1);
 
-/** A note long enough to swamp a WhatsApp line is cut at a word. */
-export function shortNote(note: string) {
-  if (note.length <= 90) return note;
-  const cut = note.slice(0, 90);
-  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 40))}…`;
-}
-
 /** Parts gather under the supplier that will be called, those without one last. */
 export function bySupplier(lines: OrderLine[]): OrderGroup[] {
   const sorted = [...lines].sort((a, b) =>
@@ -43,8 +36,11 @@ export function orderText(workshop: string, vehicle: Vehicle, groups: OrderGroup
   for (const group of groups) {
     out.push("", group.supplier || "Supplier to confirm");
     for (const { part, qty } of group.items) {
-      const note = shortNote(noteOf(part));
-      out.push(`• ${qty} × ${part.partNumber || "number to confirm"} — ${part.title}${part.partMake ? ` (${part.partMake})` : ""}${note ? ` · ${note}` : ""}`);
+      out.push(`• ${qty} × ${part.partNumber || "number to confirm"} — ${part.title}${part.partMake ? ` (${part.partMake})` : ""}`);
+      // The note often carries the fitment detail that decides the order, so it
+      // goes on its own line in full rather than trailing the part number.
+      const note = noteOf(part);
+      if (note) out.push(`   ${note}`);
     }
   }
   out.push("", `${total} item${total === 1 ? "" : "s"} · ${workshop || "our workshop"}`);
