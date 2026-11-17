@@ -2,6 +2,7 @@ import { defineHandler } from "nitro";
 import { readBody } from "nitro/h3";
 import { randomUUID } from "node:crypto";
 import { fail, logActivity, requireUser, text, transact } from "../../utils/store";
+import { addSupplierPresets } from "../../utils/suppliers";
 
 // Suppliers are links, never embedded content: only an http(s) address is kept,
 // so every entry can be opened from the parts list without surprises.
@@ -18,9 +19,17 @@ export default defineHandler(async event => {
   const body = await readBody<Record<string, unknown>>(event);
   if (!body || typeof body !== "object") fail(400, "Invalid request");
   const action = text(body.action, "Action", 20, true);
-  if (!["save", "delete"].includes(action)) fail(400, "Unknown operation");
+  if (!["save", "delete", "presets"].includes(action)) fail(400, "Unknown operation");
   return transact(db => {
     const user = requireUser(db, event.req, "write");
+    // A workspace set up before the usual shops existed fills them in from here;
+    // a shop already listed keeps its own address and search links.
+    if (action === "presets") {
+      const added = addSupplierPresets(db.suppliers, user.name);
+      db.suppliers = [...added, ...db.suppliers];
+      if (added.length) logActivity(db, user, `Added ${added.length} parts suppliers`);
+      return { added: added.length };
+    }
     const id = text(body.id, "ID", 80);
     if (action === "delete") {
       const supplier = db.suppliers.find(item => item.id === id);

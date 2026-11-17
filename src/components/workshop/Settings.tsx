@@ -143,6 +143,17 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
     finally { setStepBusy(false); }
   }
 
+  // The shops a South African workshop usually buys from, for a workspace that
+  // was set up before they were listed.
+  async function loadPresetSuppliers() {
+    setSupplierBusy(true);
+    try {
+      const result = await api<{ added: number }>("suppliers", { action: "presets" });
+      await refresh();
+      toast.success(result.added ? `Added ${result.added} supplier${result.added === 1 ? "" : "s"}` : "Every usual supplier is already listed");
+    } catch (e) { toast.error((e as Error).message); }
+    finally { setSupplierBusy(false); }
+  }
   async function removeSupplier(supplier: Supplier) {
     if (!window.confirm(`Remove ${supplier.name} from your suppliers? Parts already linked to it keep their number, but lose the link.`)) return;
     setSupplierBusy(true);
@@ -279,6 +290,7 @@ export default function Settings({ data, refresh, onAuth, confirmDelete }: { dat
         <PanelHeading title="Parts suppliers" subtitle="Where parts come from, and how to search their catalogues" action={editor ? <Button onClick={() => setSupplierEdit({})} className="h-9 rounded-lg text-xs"><Plus size={14} className="mr-1.5" />Add supplier</Button> : undefined} />
         <div className="p-6">
           <p className="text-[11px] leading-5 text-muted-foreground">Each supplier's website is kept here so a part can be ordered from the same place it was looked up. Catalogues the app already knows — Goldwagen's Parts Finder, for example — are searched directly. Paste a search address for any other supplier whose site takes the query in the link; the rest are searched through the web, narrowed to their site.</p>
+          {editor && <button type="button" onClick={loadPresetSuppliers} disabled={supplierBusy} className="mt-2 text-[11px] font-semibold text-primary hover:underline disabled:opacity-60">{supplierBusy ? "Adding suppliers…" : "Add the usual parts suppliers"}</button>}
           {suppliers.length === 0 ? (
             <p className="mt-4 rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">No suppliers yet. Add the shops you buy from to search their sites from a part or a vehicle.</p>
           ) : (

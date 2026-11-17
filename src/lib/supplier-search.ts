@@ -22,6 +22,9 @@ const knownCatalogues: { host: RegExp; label: string; template: string; partsByT
   // Spares Direct is a WooCommerce shop: `post_type=product` keeps the results to
   // parts, and their titles carry OE numbers, so a number finds the part.
   { host: /(^|\.)sparesdirect\.co\.za$/i, label: "Spares Direct search", template: "https://sparesdirect.co.za/?s={query}&post_type=product" },
+  // Modern Auto Parts runs a Shopify store: its own search takes the keyword and
+  // the product titles carry the part's code, so a number finds the part.
+  { host: /(^|\.)modernautoparts\.co\.za$/i, label: "Modern Auto Parts search", template: "https://modernautoparts.co.za/search?q={query}" },
   // Midas and Start My Car are retail shops whose search matches the words in a
   // product's name: a part number finds nothing, so their links carry the name.
   { host: /(^|\.)midas\.co\.za$/i, label: "Midas search", template: "https://midas.co.za/search?q={query}", partsByTitle: true },

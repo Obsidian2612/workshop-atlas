@@ -2,6 +2,7 @@ import { defineHandler } from "nitro";
 import { readBody } from "nitro/h3";
 import { randomBytes, randomUUID } from "node:crypto";
 import { currentUser, fail, hashPassword, logActivity, matchesPassword, publicUser, text, tokenHash, transact, validatePassword } from "../../utils/store";
+import { addSupplierPresets } from "../../utils/suppliers";
 
 const attempts = new Map<string, { count: number; until: number }>();
 let globalWindow = { count: 0, until: 0 };
@@ -35,7 +36,12 @@ export default defineHandler(async event => {
       user = { id: randomUUID(), name: text(body.name, "Name", 100, true), email, role: "admin", password: hashPassword(validatePassword(body.password)) };
       db.users.push(user);
       db.name = text(body.workshopName, "Workshop name", 100, true);
+      // The shops most workshops buy from are already listed, so the first part
+      // can be searched without anyone typing a supplier in first.
+      const presets = addSupplierPresets(db.suppliers, user.name);
+      db.suppliers = [...presets, ...db.suppliers];
       logActivity(db, user, "Created the workshop workspace");
+      if (presets.length) logActivity(db, user, `Added ${presets.length} parts suppliers`);
     } else {
       const password = typeof body.password === "string" ? body.password : "";
       if (!user || password.length > 128 || !matchesPassword(password, user.password)) {
