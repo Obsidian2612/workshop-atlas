@@ -212,9 +212,9 @@ export default function JobSheet({ workshop, user, vehicle, entry, history, clos
                 <thead>
                   <tr className="border-b border-neutral-400 text-[9px] uppercase tracking-[0.08em] text-neutral-500">
                     <th className="py-2 pr-3 font-semibold">Fastener</th>
-                    <th className="w-[15%] py-2 pr-3 font-semibold">Stage</th>
-                    <th className="w-[14%] py-2 pr-3 text-right font-semibold">Torque</th>
-                    <th className="w-[27%] py-2 font-semibold">Checked by</th>
+                    <th className="w-[13%] py-2 pr-3 font-semibold">Stage</th>
+                    <th className="w-[13%] py-2 pr-3 text-right font-semibold">Torque</th>
+                    <th className="w-[33%] py-2 font-semibold">Checked by</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -226,7 +226,8 @@ export default function JobSheet({ workshop, user, vehicle, entry, history, clos
                       <td className="py-2 align-top">
                         {spec.checkedAt
                           ? <>
-                            <span className="font-semibold text-black">✓ {spec.checkedBy} · {prettyDate(spec.checkedAt)}</span>
+                            <span className="block font-semibold text-black">✓ {spec.checkedBy}</span>
+                            <span className="block text-[9px] text-neutral-600">{prettyDate(spec.checkedAt)}</span>
                             {spec.checkedAgainst && <span className="mt-0.5 block text-neutral-600">Against {spec.checkedAgainst}</span>}
                           </>
                           : <span className="text-neutral-500">Not checked</span>}
