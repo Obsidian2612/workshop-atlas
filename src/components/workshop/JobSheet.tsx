@@ -225,12 +225,12 @@ export default function JobSheet({ workshop, user, vehicle, entry, history, clos
                       <td className="whitespace-nowrap py-2 pr-3 text-right font-semibold text-black">{spec.value} {spec.unit}</td>
                       <td className="py-2 align-top">
                         {spec.checkedAt
-                          ? <div className="text-neutral-600">
-                            <p className="font-semibold text-black">✓ {spec.checkedBy}</p>
+                          ? <div className="text-neutral-500">
+                            <p>✓ {spec.checkedBy}</p>
                             <p>{prettyDate(spec.checkedAt)}</p>
                             {spec.checkedAgainst && <p className="mt-0.5">Against {spec.checkedAgainst}</p>}
                           </div>
-                          : <span className="text-neutral-500">Not checked</span>}
+                          : <span className="inline-block border border-black px-1.5 py-0.5 text-[9px] font-bold uppercase leading-tight tracking-[0.08em] text-black">Not checked</span>}
                       </td>
                     </tr>
                   ))}
