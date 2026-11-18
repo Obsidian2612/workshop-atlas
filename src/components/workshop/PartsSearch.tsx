@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, ExternalLink, Globe, Loader2, Package, Search, ShieldAlert } from "lucide-react";
+import { Check, ExternalLink, Globe, Loader2, Package, Plus, Search, ShieldAlert } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +30,10 @@ export default function PartsSearch({ data, term, vehicleId, close, refresh }: {
   const [error, setError] = useState("");
   const [adding, setAdding] = useState("");
   const [added, setAdded] = useState<Record<string, boolean>>({});
+  // A shop the search found but the workshop does not list yet. Adding it once
+  // makes every row from that shop orderable.
+  const [shops, setShops] = useState<Record<string, { id: string; name: string }>>({});
+  const [addingShop, setAddingShop] = useState("");
   const configuredError = /GROQ_API_KEY/i.test(error);
   const results = result?.results ?? [];
 
@@ -49,14 +53,31 @@ export default function PartsSearch({ data, term, vehicleId, close, refresh }: {
     && record.title.toLowerCase() === row.title.toLowerCase()
     && (record.partNumber || "").toLowerCase() === row.partNumber.toLowerCase());
 
+  const shopOf = (row: PartSearchResult) => shops[row.website] || (row.supplierId ? { id: row.supplierId, name: row.supplierName } : undefined);
+  const supplierIdOf = (row: PartSearchResult) => shopOf(row)?.id || "";
+  const supplierNameOf = (row: PartSearchResult) => data.suppliers.find(supplier => supplier.id === supplierIdOf(row))?.name || shopOf(row)?.name || row.supplierName;
+
+  async function addShop(row: PartSearchResult) {
+    setAddingShop(row.website);
+    try {
+      const supplier = await api<{ id: string; name: string }>("suppliers", { action: "save", name: row.supplierName, website: row.website, searchUrl: "", nameSearchUrl: "" });
+      setShops(current => ({ ...current, [row.website]: { id: supplier.id, name: supplier.name } }));
+      await refresh();
+      toast.success(`Added ${supplier.name} to your suppliers. This part can be ordered from it now.`);
+    } catch (e) { toast.error((e as Error).message); }
+    finally { setAddingShop(""); }
+  }
+
   async function add(row: PartSearchResult) {
+    const supplierId = supplierIdOf(row);
+    if (!supplierId) { toast.info(`Add ${supplierNameOf(row)} as a supplier first, then add the part.`); return; }
     setAdding(row.url);
     try {
       // The page and the price travel with the part, so the order can be checked later.
-      const content = [row.price ? `Price seen at ${row.supplierName}: ${row.price}` : "", row.snippet, `Source: ${row.url}`].filter(Boolean).join("\n");
+      const content = [row.price ? `Price seen at ${supplierNameOf(row)}: ${row.price}` : "", row.snippet, `Source: ${row.url}`].filter(Boolean).join("\n");
       await api("records", {
         entity: "record", action: "save", kind: "part",
-        title: row.title, partNumber: row.partNumber, partMake: row.partMake, supplierId: row.supplierId,
+        title: row.title, partNumber: row.partNumber, partMake: row.partMake, supplierId,
         vehicleId: vehicle === "none" ? "" : vehicle, content,
       });
       setAdded(current => ({ ...current, [row.url]: true }));
@@ -71,7 +92,7 @@ export default function PartsSearch({ data, term, vehicleId, close, refresh }: {
       <DialogHeader>
         <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><Globe size={22} /></span>
         <DialogTitle className="font-heading text-2xl font-bold">Search the suppliers</DialogTitle>
-        <DialogDescription className="pt-1 leading-6">Type what the part is called on the floor — clutch kit, dipstick — and Groq searches {data.suppliers.length === 1 ? data.suppliers[0].name : "the suppliers listed in this workshop"} for what they stock. Nothing is saved until you add a row.</DialogDescription>
+        <DialogDescription className="pt-1 leading-6">Type what the part is called on the floor — clutch kit, dipstick — and Groq searches {data.suppliers.length === 1 ? data.suppliers[0].name : "the suppliers listed in this workshop"} and other shops it finds for what they stock. A shop you do not list yet can be added from its row, and nothing is saved until you add a row.</DialogDescription>
       </DialogHeader>
 
       <form className="mt-4 space-y-3" onSubmit={event => { event.preventDefault(); void run(query); }}>
@@ -114,20 +135,24 @@ export default function PartsSearch({ data, term, vehicleId, close, refresh }: {
                   {row.partMake && <span className="rounded bg-background px-1.5 py-0.5 font-sans text-[10px] font-semibold text-muted-foreground">{row.partMake}</span>}
                 </p>
                 <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
-                  <span className="font-semibold text-foreground">{row.supplierName}</span>
+                  <span className="font-semibold text-foreground">{supplierNameOf(row)}</span>
+                  {!supplierIdOf(row) && <span className="rounded bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-800">Not in your suppliers</span>}
                   {row.price && <span className="font-semibold text-primary">{row.price}</span>}
                   <a href={row.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-semibold text-primary hover:underline">Open page<ExternalLink size={10} /></a>
                 </p>
                 {row.snippet && <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-muted-foreground">{row.snippet}</p>}
               </div>
-              <Button type="button" variant={done ? "outline" : "default"} size="sm" disabled={done || adding === row.url} onClick={() => void add(row)} className="h-8 rounded-lg px-3 text-[11px]">
+              {supplierIdOf(row) ? <Button type="button" variant={done ? "outline" : "default"} size="sm" disabled={done || adding === row.url} onClick={() => void add(row)} className="h-8 rounded-lg px-3 text-[11px]">
                 {adding === row.url ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : done ? <Check size={12} className="mr-1.5" /> : null}
                 {done ? "In parts list" : "Add part"}
-              </Button>
+              </Button> : <Button type="button" variant="outline" size="sm" disabled={addingShop === row.website} onClick={() => void addShop(row)} title={`Add ${row.supplierName} as a supplier so this part can be ordered from it`} className="h-8 rounded-lg border-primary/20 bg-primary/5 px-3 text-[11px] font-semibold text-primary hover:bg-primary/10">
+                {addingShop === row.website ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Plus size={12} className="mr-1.5" />}
+                Add shop
+              </Button>}
             </div>;
           })}</div> : <div className="rounded-xl border border-dashed border-border p-8 text-center">
             <Package size={22} className="mx-auto text-muted-foreground" />
-            <p className="mt-3 text-sm font-semibold">No supplier listed a part under that name.</p>
+            <p className="mt-3 text-sm font-semibold">No shop listed a part under that name.</p>
             <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-muted-foreground">Try the name the shops use — “clutch kit 3 piece”, “oil filter”, “wiper blade” — or choose the vehicle so the search can match the fitment.</p>
           </div>}
 

@@ -93,7 +93,9 @@ export interface ModelStep {
 /** One product a supplier listed for the typed part name. */
 export interface PartSearchResult {
   title: string; partNumber: string; partMake: string; price: string;
-  supplierId: string; supplierName: string; url: string; imageUrl: string; snippet: string;
+  /** Empty when the shop is not a supplier in this workshop yet. */
+  supplierId: string; supplierName: string; website: string;
+  url: string; imageUrl: string; snippet: string;
 }
 export interface PartSearchResponse { query: string; vehicle: string; provider: string; results: PartSearchResult[]; cached?: boolean }
 export interface Supplier {

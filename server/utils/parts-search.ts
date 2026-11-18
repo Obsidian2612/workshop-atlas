@@ -33,7 +33,8 @@ function promptFor(term: string, vehicle: SearchVehicle | null | undefined, supp
       : "No vehicle is chosen, so include the parts a workshop would most likely fit normally.",
     "Use your browser_search tool to search these suppliers' own websites:",
     suppliers.map(supplier => `${supplier.name} (${supplier.website})`).join("; "),
-    "Only list real products you found on one of those suppliers' own pages. Copy the product page address exactly as it appears in the results, never a search-result address and never a made-up one. Never invent a part number, a brand, a price or an image address.",
+    "Only list real products you found on a supplier's own product page. Copy the product page address exactly as it appears in the results, never a search-result address and never a made-up one. Never invent a part number, a brand, a price or an image address.",
+    "A real product page at another reputable parts shop is also worth listing — at most four such parts — because the workshop can add that shop as a supplier from the result. Put that shop's proper name in the supplier field.",
     "Return only one JSON object, with no markdown, prose or code fences:",
     '{"parts":[{"title":"Clutch kit 3-piece","partNumber":"GW1234","make":"Sachs","supplier":"Goldwagen","price":"R2 450","url":"https://...","image":"https://...","snippet":"short exact text from the product page"}],"sources":[{"title":"Page title","url":"https://...","snippet":"short exact text"}]}',
     `Give at most ${maxResults} parts, covering every supplier that lists a match. Leave partNumber, make, price or image empty when the page does not show it. A product page often names the fitment, the number and the price in its listing text — keep those exact.`,
@@ -108,6 +109,17 @@ function supplierFor(url: string, named: string, suppliers: SearchSupplier[]) {
   return suppliers.find(supplier => onSite(url, supplier.website));
 }
 
+/** A readable shop name from a domain: partsfinder.goldwagen.com → Goldwagen. */
+function shopLabel(url: string) {
+  try {
+    const labels = new URL(url).hostname.toLowerCase().replace(/^www\./, "").split(".");
+    // A country suffix (co.za, com.au) pushes the shop's own label one step left.
+    const suffix = ["co", "com", "org", "net"].includes(labels[labels.length - 2] || "") ? 3 : 2;
+    const label = labels[labels.length - suffix] || labels[0] || "";
+    return label ? label.charAt(0).toUpperCase() + label.slice(1) : "";
+  } catch { return ""; }
+}
+
 function cleanResults(value: unknown, suppliers: SearchSupplier[]): PartSearchResult[] {
   const list = Array.isArray(value) ? value : [];
   const results = new Map<string, PartSearchResult>();
@@ -117,9 +129,8 @@ function cleanResults(value: unknown, suppliers: SearchSupplier[]): PartSearchRe
     const title = cleanText(row.title ?? row.name ?? row.product, 200);
     const url = safeUrl(row.url ?? row.link ?? row.productUrl);
     if (title.length < 2 || !url) continue;
-    const supplier = supplierFor(url, cleanText(row.supplier, 100).toLowerCase(), suppliers);
-    // A part with no supplier behind it cannot be checked or ordered from here.
-    if (!supplier) continue;
+    const named = cleanText(row.supplier ?? row.shop ?? row.store, 100);
+    const supplier = supplierFor(url, named.toLowerCase(), suppliers);
     const partNumber = cleanText(row.partNumber ?? row.number ?? row.sku, 60);
     const key = `${url}|${partNumber.toLowerCase()}`;
     if (results.has(key)) continue;
@@ -128,8 +139,11 @@ function cleanResults(value: unknown, suppliers: SearchSupplier[]): PartSearchRe
       partNumber,
       partMake: cleanText(row.make ?? row.brand ?? row.manufacturer, 60),
       price: cleanText(row.price, 40),
-      supplierId: supplier.id,
-      supplierName: supplier.name,
+      // A shop that is not listed yet keeps its own name and site, so the row can
+      // still be ordered from once the counter adds that shop as a supplier.
+      supplierId: supplier?.id || "",
+      supplierName: supplier?.name || named || shopLabel(url) || siteHost(url),
+      website: supplier?.website || new URL(url).origin,
       url,
       imageUrl: safeUrl(row.image ?? row.imageUrl ?? row.picture) || "",
       snippet: cleanText(row.snippet ?? row.note ?? row.description, 300),
@@ -251,12 +265,11 @@ export async function searchParts(input: { term: string; vehicle?: SearchVehicle
   if (!parsed) fail(502, "Groq did not return parts in the expected format. Try again.");
 
   const results = cleanResults(parsed?.parts ?? parsed?.products ?? parsed?.results, suppliers);
-  const websites = new Map(suppliers.map(supplier => [supplier.id, supplier.website]));
-  // Pictures are read from the supplier's own page, so a suggestion never shows
-  // an image that page does not offer.
+  // Pictures are read from the shop's own page, so a suggestion never shows an
+  // image that page does not offer.
   await Promise.all(results.map(async result => {
     if (result.imageUrl) return;
-    result.imageUrl = await pageImage(result.url, websites.get(result.supplierId) || "");
+    result.imageUrl = await pageImage(result.url, result.website);
   }));
 
   const data: PartSearchResponse = {
