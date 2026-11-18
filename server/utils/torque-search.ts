@@ -151,13 +151,19 @@ function citationSources(value: unknown, content: string): TorqueSearchSource[] 
 function csvCandidates(rows: TorqueCsvRow[], sources: TorqueSearchSource[]): TorqueSearchCandidate[] {
   const byUrl = new Map(sources.map(source => [source.url, source]));
   const candidates = new Map<string, TorqueSearchCandidate>();
+  // An answer often names its page once, or writes a near-miss URL for each row,
+  // so a row without a link of its own takes the page named just before it.
+  let previous: TorqueSearchSource | undefined;
   for (const row of rows) {
     const requestedUrl = safeSourceUrl(row.sourceUrl);
     const source = (requestedUrl && byUrl.get(canonicalSourceUrl(requestedUrl)))
       || (row.sourceTitle && sources.find(item => item.title.toLowerCase() === row.sourceTitle!.toLowerCase()))
-      || (sources.length === 1 ? sources[0] : undefined);
-    // A row without a page behind it cannot be reviewed, so it is left out.
+      // A row before the first link is still backed by that page.
+      || previous
+      || sources[0];
+    // Only an answer that cited no page at all leaves its rows unreviewable.
     if (!source) continue;
+    previous = source;
     const key = `${row.fastener.toLowerCase()}|${row.stage.toLowerCase()}|${row.value}|${row.unit}`;
     const existing = candidates.get(key);
     if (existing) { existing.mentions += 1; continue; }
