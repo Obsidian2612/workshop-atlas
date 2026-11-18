@@ -22,6 +22,9 @@ const knownCatalogues: { host: RegExp; label: string; template: string; partsByT
   // Spares Direct is a WooCommerce shop: `post_type=product` keeps the results to
   // parts, and their titles carry OE numbers, so a number finds the part.
   { host: /(^|\.)sparesdirect\.co\.za$/i, label: "Spares Direct search", template: "https://sparesdirect.co.za/?s={query}&post_type=product" },
+  // Diesel-Electric's shop takes the keyword in `s`, and its products are titled
+  // with the part number, so a number searched there lands on the part.
+  { host: /(^|\.)diesel-electric\.co\.za$/i, label: "Diesel-Electric search", template: "https://www.diesel-electric.co.za/?s={query}" },
   // Modern Auto Parts runs a Shopify store: its own search takes the keyword and
   // the product titles carry the part's code, so a number finds the part.
   { host: /(^|\.)modernautoparts\.co\.za$/i, label: "Modern Auto Parts search", template: "https://modernautoparts.co.za/search?q={query}" },
