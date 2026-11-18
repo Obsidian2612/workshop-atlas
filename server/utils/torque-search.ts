@@ -35,6 +35,7 @@ function promptFor(vehicle: SearchVehicle) {
     `Research manufacturer tightening-torque specifications for this exact vehicle: ${vehicleDescription(vehicle)}.`,
     "Use your browser_search tool to find real source pages. Prefer OEM service information or a reputable workshop manual that identifies the matching vehicle and engine.",
     "Never infer values from a related model/year and never invent a torque. Include a candidate only when the cited source clearly supports the exact fastener, value and unit. If you cannot verify a value, omit it.",
+    "When you have read a page that carries this vehicle's tightening-torque table, list every fastener in that table, not one example row. A table normally gives ten or more rows.",
     "Read the actual browser-search source snippets/pages: do not list generic search snippets as sources. Keep source results even when you cannot extract a numeric torque, so the user can open the source and paste its table manually.",
     "Return only a CSV table — no markdown, no prose, no code fences.",
     "The header line must be exactly: fastener,stage,value,unit,sourceTitle,sourceUrl",
@@ -207,6 +208,8 @@ function normalizeCandidates(value: unknown, sources: TorqueSearchSource[]): Tor
 interface GroqSearchReply {
   content: string;
   sources: TorqueSearchSource[];
+  /** The answer stopped at the token limit, so the table is only part written. */
+  truncated: boolean;
 }
 
 async function askGroq(vehicle: SearchVehicle): Promise<GroqSearchReply> {
@@ -228,7 +231,9 @@ async function askGroq(vehicle: SearchVehicle): Promise<GroqSearchReply> {
         model,
         messages: [{ role: "user", content: promptFor(vehicle) }],
         temperature: 1,
-        max_completion_tokens: 4096,
+        // Reasoning and a forty-row table share this budget; 4096 cut long answers off
+        // after the first row, so the price of a longer budget is worth paying.
+        max_completion_tokens: 12288,
         reasoning_effort: "low",
         stream: false,
         tool_choice: "required",
@@ -249,11 +254,11 @@ async function askGroq(vehicle: SearchVehicle): Promise<GroqSearchReply> {
   }
   try {
     const data = await response.json() as {
-      choices?: { message?: { content?: string | null; annotations?: unknown } }[];
+      choices?: { finish_reason?: string; message?: { content?: string | null; annotations?: unknown } }[];
     };
-    const message = data.choices?.[0]?.message;
-    const content = message?.content || "";
-    return { content, sources: citationSources(message?.annotations, content) };
+    const choice = data.choices?.[0];
+    const content = choice?.message?.content || "";
+    return { content, sources: citationSources(choice?.message?.annotations, content), truncated: choice?.finish_reason === "length" };
   } catch {
     fail(502, "Groq returned an unreadable response.");
   }
@@ -281,7 +286,9 @@ export async function searchTorqueSpecs(vehicle: SearchVehicle): Promise<TorqueS
     candidates,
     fetched: results.length,
   };
-  cache.set(cacheKey, { at: Date.now(), data });
+  // A reply cut off at the token limit is kept out of the cache so the next
+  // search asks again instead of repeating a half-finished table for ten minutes.
+  if (!reply.truncated) cache.set(cacheKey, { at: Date.now(), data });
   if (cache.size > 60) {
     const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at).slice(0, 20);
     for (const [entry] of oldest) cache.delete(entry);

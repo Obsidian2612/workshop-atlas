@@ -252,24 +252,62 @@ function csvCells(source: string): string[][] {
   return rows.filter(cells => cells.some(value => value.trim()));
 }
 
+/** A markdown-style table row (`| a | b |`) is split on its pipes instead. */
+function pipeCells(line: string): string[] {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(cell => cell.trim());
+}
+
+/*
+ * Models often answer with a markdown table even when asked for CSV, and piped
+ * rows cannot be read by the comma splitter, so both shapes are collected here.
+ */
+function tableRows(source: string): string[][] {
+  const lines = source.replace(/```[a-z]*/gi, "").split(/\r?\n/);
+  const rows = csvCells(lines.filter(line => !line.trim().startsWith("|")).join("\n"));
+  for (const line of lines) if (line.trim().startsWith("|")) rows.push(pipeCells(line));
+  return rows;
+}
+
+/** A unit written into a heading (`Torque (Nm)`) applies to the whole column. */
+function headerUnit(cells: string[]): TorqueUnit | null {
+  for (const cell of cells) {
+    const direct = normalizeTorqueUnit(cell);
+    if (direct) return direct;
+    const bracketed = cell.match(/[（(]([^)）]*)[)）]/);
+    const inside = bracketed ? normalizeTorqueUnit(bracketed[1]) : null;
+    if (inside) return inside;
+  }
+  return null;
+}
+
 export function parseTorqueCsv(source: string): TorqueCsvRow[] {
-  const rows = csvCells(source.replace(/```[a-z]*/gi, ""));
+  const rows = tableRows(source);
   const heading = (cell: string) => cell.trim().toLowerCase().replace(/[^a-z]/g, "");
+  const matchesAlias = (key: string, alias: string) => key === alias || key.startsWith(alias) || key.endsWith(alias);
   let columns: Record<string, number> | null = null;
+  let fallbackUnit: TorqueUnit | null = null;
   const specs: TorqueCsvRow[] = [];
   const positions = new Map<string, number>();
   for (const row of rows) {
     const keys = row.map(heading);
     if (!columns) {
-      // The header row is whichever line names a fastener, a value and a unit.
-      const has = (field: string) => keys.some(key => csvHeadings[field].includes(key));
-      if (!has("fastener") || !has("value") || !has("unit")) continue;
+      // The header row is whichever line names a fastener and a value; the unit
+      // may sit in its own column or in the value heading ("Torque (Nm)").
+      const has = (field: string) => keys.some(key => csvHeadings[field].some(alias => matchesAlias(key, alias)));
+      if (!has("fastener") || !has("value")) continue;
       columns = {};
       keys.forEach((key, index) => {
         for (const [field, aliases] of Object.entries(csvHeadings)) {
           if (aliases.includes(key) && columns![field] === undefined) columns![field] = index;
         }
       });
+      // Only after the exact headings are placed may a looser heading claim a column.
+      keys.forEach((key, index) => {
+        for (const [field, aliases] of Object.entries(csvHeadings)) {
+          if (columns![field] === undefined && aliases.some(alias => matchesAlias(key, alias))) columns![field] = index;
+        }
+      });
+      fallbackUnit = headerUnit(row);
       continue;
     }
     const cell = (field: string) => {
@@ -282,7 +320,7 @@ export function parseTorqueCsv(source: string): TorqueCsvRow[] {
     const rawValue = cell("value");
     const split = rawValue.match(/^(\d{1,4}(?:[.,]\d{1,3})?)\s*(.*)$/);
     const value = cleanTorqueValue(split?.[1] ?? rawValue);
-    const unit = normalizeTorqueUnit(cell("unit")) ?? normalizeTorqueUnit(split?.[2] ?? "");
+    const unit = normalizeTorqueUnit(cell("unit")) ?? normalizeTorqueUnit(split?.[2] ?? "") ?? fallbackUnit;
     if (value === null || !unit) continue;
     const spec: TorqueCsvRow = { fastener, stage: cell("stage").slice(0, 40), value, unit };
     const sourceTitle = cell("sourceTitle").slice(0, 200);
