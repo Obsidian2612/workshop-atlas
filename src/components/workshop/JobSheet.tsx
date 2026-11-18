@@ -223,9 +223,9 @@ export default function JobSheet({ workshop, user, vehicle, entry, history, clos
                       <td className="py-2 pr-3 text-neutral-800">{spec.fastener}</td>
                       <td className="py-2 pr-3 text-neutral-600">{spec.stage ? `Stage ${spec.stage}` : "—"}</td>
                       <td className="whitespace-nowrap py-2 pr-3 text-right font-semibold text-black">{spec.value} {spec.unit}</td>
-                      <td className="py-2 align-top">
+                      <td className="py-2">
                         {spec.checkedAt
-                          ? <div className="text-neutral-500">
+                          ? <div className="text-neutral-600">
                             <p>✓ {spec.checkedBy}</p>
                             <p>{prettyDate(spec.checkedAt)}</p>
                             {spec.checkedAgainst && <p className="mt-0.5">Against {spec.checkedAgainst}</p>}
