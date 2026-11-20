@@ -145,7 +145,7 @@ export default function JobWorkflow({ data, create, view, refresh }: {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {([["Registration", vehicle.registration], ["VIN", vehicle.vin], ["Year / engine", [vehicle.year, vehicle.engine].filter(Boolean).join(" · ")], ["Customer", vehicle.customer]] as const).map(([label, value]) => <div key={label} className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p><p className={`mt-1 break-words text-xs ${value ? "font-medium" : "text-muted-foreground"}`}>{value || "Not recorded"}</p></div>)}
       </div>
-      {!identified && !vehicle.vin.trim() && <p className="mt-3 text-[11px] leading-5 text-muted-foreground">A registration or a VIN is enough to find the vehicle again. Edit the record to add what is missing before relying on a lookup.</p>}
+      {!identified && <p className="mt-3 text-[11px] leading-5 text-muted-foreground">A registration or a VIN is enough to find the vehicle again. Edit the record to add what is missing before relying on a lookup.</p>}
     </Step>
 
     <Step number={2} title="Agree the repair time" state={repairTimes.length ? "done" : "open"}
