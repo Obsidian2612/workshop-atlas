@@ -87,6 +87,11 @@ export default function JobWorkflow({ data, create, view, refresh }: {
   const visits = data.records.filter(record => record.kind === "service" && record.vehicleId === vehicle.id);
   const allowance = repairTimes.reduce((sum, entry) => sum + entry.minutes, 0);
   const identified = Boolean(vehicle.make.trim() && vehicle.model.trim() && (vehicle.vin.trim() || vehicle.registration.trim()));
+  const missingDetails = [
+    !vehicle.make.trim() ? "make" : "",
+    !vehicle.model.trim() ? "model" : "",
+    !vehicle.vin.trim() && !vehicle.registration.trim() ? "VIN or registration" : "",
+  ].filter(Boolean);
   const ready = [identified, repairTimes.length > 0, torques.length > 0 && unchecked === 0, parts.length > 0, visits.length > 0].filter(Boolean).length;
 
   // Identification only fills what is blank and saves it; nothing already recorded is replaced.
@@ -145,7 +150,7 @@ export default function JobWorkflow({ data, create, view, refresh }: {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {([["Registration", vehicle.registration], ["VIN", vehicle.vin], ["Year / engine", [vehicle.year, vehicle.engine].filter(Boolean).join(" · ")], ["Customer", vehicle.customer]] as const).map(([label, value]) => <div key={label} className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p><p className={`mt-1 break-words text-xs ${value ? "font-medium" : "text-muted-foreground"}`}>{value || "Not recorded"}</p></div>)}
       </div>
-      {!identified && <p className="mt-3 text-[11px] leading-5 text-muted-foreground">A registration or a VIN is enough to find the vehicle again. Edit the record to add what is missing before relying on a lookup.</p>}
+      {!identified && <p className="mt-3 text-[11px] leading-5 text-muted-foreground">A registration or a VIN is enough to find the vehicle again. Still missing: {missingDetails.join(", ")} — add {missingDetails.length > 1 ? "them" : "it"} in the vehicle record before relying on a lookup.</p>}
     </Step>
 
     <Step number={2} title="Agree the repair time" state={repairTimes.length ? "done" : "open"}
