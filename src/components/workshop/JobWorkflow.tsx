@@ -139,7 +139,7 @@ export default function JobWorkflow({ data, create, view, refresh }: {
 
     <Step number={1} title="Identify the vehicle" state={identified ? "done" : "open"}
       actions={<>
-        {!vehicle.vin.trim() && canEdit && <Action label="Edit the vehicle" icon={<Plus size={13} />} onClick={() => create({ entity: "vehicle", value: vehicle })} />}
+        {!identified && canEdit && <Action label="Edit the vehicle" icon={<Plus size={13} />} onClick={() => create({ entity: "vehicle", value: vehicle })} />}
         {vehicle.vin.trim() ? (canEdit && <Action label={vinBusy ? "Reading the VIN…" : "Fill missing details from the VIN"} icon={vinBusy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} onClick={() => { if (!vinBusy) void fillFromVin(); }} />) : null}
       </>}>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
