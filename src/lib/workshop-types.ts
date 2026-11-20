@@ -121,9 +121,9 @@ export interface Workspace {
   // Uploaded repair-time sheets (PDF prints). Only administrators receive them.
   repairTimePdfs?: RepairTimePdf[];
 }
-export type Section = "overview" | "vehicles" | "procedures" | "notes" | "history" | "parts" | "attachments" | "legacy" | "settings";
+export type Section = "overview" | "workflow" | "vehicles" | "procedures" | "notes" | "history" | "parts" | "attachments" | "legacy" | "settings";
 export const sectionTitles: Record<Section, string> = {
-  overview: "Workshop overview", vehicles: "Vehicle library", procedures: "Service procedures",
+  overview: "Workshop overview", workflow: "Job workflow", vehicles: "Vehicle library", procedures: "Service procedures",
   notes: "Repair notes", history: "Service history", parts: "Parts & suppliers",
   attachments: "Documents & photos",
   legacy: "Autodata connection", settings: "Workspace settings",

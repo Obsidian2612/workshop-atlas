@@ -1,9 +1,10 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, CarFront, BookOpen, StickyNote, History, Package, FolderOpen, Cable, Settings2, ChevronDown, ArrowUpRight, ShieldCheck, X, Wrench } from "lucide-react";
+import { LayoutDashboard, ClipboardList, CarFront, BookOpen, StickyNote, History, Package, FolderOpen, Cable, Settings2, ChevronDown, ArrowUpRight, ShieldCheck, X, Wrench } from "lucide-react";
 import type { Workspace } from "@/lib/workshop-types";
 import { cn } from "@/lib/utils";
 export const navigation = [
   { path: "/", title: "Overview", icon: LayoutDashboard },
+  { path: "/workflow", title: "Job workflow", icon: ClipboardList },
   { path: "/vehicles", title: "Vehicle library", icon: CarFront },
   { path: "/procedures", title: "Service procedures", icon: BookOpen },
   { path: "/notes", title: "Repair notes", icon: StickyNote },
