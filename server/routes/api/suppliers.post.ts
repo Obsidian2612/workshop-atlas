@@ -2,7 +2,7 @@ import { defineHandler } from "nitro";
 import { readBody } from "nitro/h3";
 import { randomUUID } from "node:crypto";
 import { fail, logActivity, requireUser, text, transact } from "../../utils/store";
-import { addSupplierPresets } from "../../utils/suppliers";
+import { addSupplierPresets, sharesSite } from "../../utils/suppliers";
 
 // Suppliers are links, never embedded content: only an http(s) address is kept,
 // so every entry can be opened from the parts list without surprises.
@@ -43,6 +43,12 @@ export default defineHandler(async event => {
     const existing = id ? db.suppliers.find(item => item.id === id) : undefined;
     if (id && !existing) fail(404, "Supplier not found");
     const name = text(body.name, "Supplier name", 100, true);
+    const website = webAddress(body.website, "Website", true);
+    // A site holds one shop: adding a shop found by the supplier search answers
+    // with the entry already listed rather than a second one for the same address.
+    const listedSite = db.suppliers.find(item => item.id !== existing?.id && sharesSite(item.website, website));
+    if (listedSite && !existing) return { ...listedSite, reused: true };
+    if (listedSite) fail(400, `That website is already listed for ${listedSite.name}`);
     if (db.suppliers.some(item => item.name.toLowerCase() === name.toLowerCase() && item.id !== existing?.id)) fail(400, "A supplier with that name is already listed");
     const now = new Date().toISOString();
     // The optional search addresses are checked with every placeholder filled in, so
@@ -56,7 +62,7 @@ export default defineHandler(async event => {
     const nameSearchUrl = searchAddress(body.nameSearchUrl, "Name search address");
     const supplier = {
       id: existing?.id || randomUUID(), name,
-      website: webAddress(body.website, "Website", true), searchUrl, nameSearchUrl,
+      website, searchUrl, nameSearchUrl,
       createdAt: existing?.createdAt || now, createdBy: existing?.createdBy || user.name,
     };
     db.suppliers = [supplier, ...db.suppliers.filter(item => item.id !== supplier.id)];

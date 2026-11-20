@@ -24,6 +24,22 @@ export const supplierPresets: { name: string; website: string }[] = [
   { name: "Bearing Man Group", website: "https://www.bmgworld.net" },
 ];
 
+/** The host an address is served from, without a leading www. */
+export function siteHost(value: string) {
+  try { return new URL(value).hostname.toLowerCase().replace(/^www\./, ""); } catch { return ""; }
+}
+
+/**
+ * Whether two addresses belong to the same shop. A shop often keeps its catalogue
+ * on a subdomain (partsfinder.goldwagen.com), so a subdomain of a listed site is
+ * that site and not a second shop.
+ */
+export function sharesSite(a: string, b: string) {
+  const left = siteHost(a);
+  const right = siteHost(b);
+  return Boolean(left && right && (left === right || left.endsWith(`.${right}`) || right.endsWith(`.${left}`)));
+}
+
 /**
  * Every preset the workshop does not already list, ready to be put in front of
  * the existing ones. A shop that is already there keeps its own address and

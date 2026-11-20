@@ -22,6 +22,17 @@ function Thumb({ src, alt }: { src: string; alt: string }) {
   return <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} className="h-20 w-20 shrink-0 rounded-xl border border-border bg-white object-contain p-1" />;
 }
 
+function hostOf(value: string) {
+  try { return new URL(value).hostname.toLowerCase().replace(/^www\./, ""); } catch { return ""; }
+}
+
+/** Whether two addresses belong to the same shop, including its subdomains. */
+function sharesSite(a: string, b: string) {
+  const left = hostOf(a);
+  const right = hostOf(b);
+  return Boolean(left && right && (left === right || left.endsWith(`.${right}`) || right.endsWith(`.${left}`)));
+}
+
 export default function PartsSearch({ data, term, vehicleId, close, refresh }: { data: Workspace; term: string; vehicleId: string; close: () => void; refresh: () => Promise<void> }) {
   const [query, setQuery] = useState(term);
   const [vehicle, setVehicle] = useState(vehicleId || "none");
@@ -53,17 +64,28 @@ export default function PartsSearch({ data, term, vehicleId, close, refresh }: {
     && record.title.toLowerCase() === row.title.toLowerCase()
     && (record.partNumber || "").toLowerCase() === row.partNumber.toLowerCase());
 
-  const shopOf = (row: PartSearchResult) => shops[row.website] || (row.supplierId ? { id: row.supplierId, name: row.supplierName } : undefined);
+  // A cached answer was written before the shop was added, so a row is matched to
+  // a supplier by the site it is on as well as by the id the server gave it.
+  const shopOf = (row: PartSearchResult) => {
+    const used = Object.entries(shops).find(([site]) => sharesSite(site, row.website) || sharesSite(site, row.url));
+    if (used) return used[1];
+    if (row.supplierId) return { id: row.supplierId, name: row.supplierName };
+    const listed = data.suppliers.find(supplier => sharesSite(supplier.website, row.website) || sharesSite(supplier.website, row.url));
+    return listed ? { id: listed.id, name: listed.name } : undefined;
+  };
   const supplierIdOf = (row: PartSearchResult) => shopOf(row)?.id || "";
   const supplierNameOf = (row: PartSearchResult) => data.suppliers.find(supplier => supplier.id === supplierIdOf(row))?.name || shopOf(row)?.name || row.supplierName;
 
   async function addShop(row: PartSearchResult) {
-    setAddingShop(row.website);
+    // Keyed by host, so every row from the same shop waits on the one save.
+    setAddingShop(hostOf(row.website) || row.website);
     try {
-      const supplier = await api<{ id: string; name: string }>("suppliers", { action: "save", name: row.supplierName, website: row.website, searchUrl: "", nameSearchUrl: "" });
+      const supplier = await api<{ id: string; name: string; reused?: boolean }>("suppliers", { action: "save", name: row.supplierName, website: row.website, searchUrl: "", nameSearchUrl: "" });
       setShops(current => ({ ...current, [row.website]: { id: supplier.id, name: supplier.name } }));
       await refresh();
-      toast.success(`Added ${supplier.name} to your suppliers. This part can be ordered from it now.`);
+      toast.success(supplier.reused
+        ? `${supplier.name} is already in your suppliers, so this part can be ordered from it now.`
+        : `Added ${supplier.name} to your suppliers. This part can be ordered from it now.`);
     } catch (e) { toast.error((e as Error).message); }
     finally { setAddingShop(""); }
   }
@@ -145,8 +167,8 @@ export default function PartsSearch({ data, term, vehicleId, close, refresh }: {
               {supplierIdOf(row) ? <Button type="button" variant={done ? "outline" : "default"} size="sm" disabled={done || adding === row.url} onClick={() => void add(row)} className="h-8 rounded-lg px-3 text-[11px]">
                 {adding === row.url ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : done ? <Check size={12} className="mr-1.5" /> : null}
                 {done ? "In parts list" : "Add part"}
-              </Button> : <Button type="button" variant="outline" size="sm" disabled={addingShop === row.website} onClick={() => void addShop(row)} title={`Add ${row.supplierName} as a supplier so this part can be ordered from it`} className="h-8 rounded-lg border-primary/20 bg-primary/5 px-3 text-[11px] font-semibold text-primary hover:bg-primary/10">
-                {addingShop === row.website ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Plus size={12} className="mr-1.5" />}
+              </Button> : <Button type="button" variant="outline" size="sm" disabled={addingShop === (hostOf(row.website) || row.website)} onClick={() => void addShop(row)} title={`Add ${row.supplierName} as a supplier so this part can be ordered from it`} className="h-8 rounded-lg border-primary/20 bg-primary/5 px-3 text-[11px] font-semibold text-primary hover:bg-primary/10">
+                {addingShop === (hostOf(row.website) || row.website) ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Plus size={12} className="mr-1.5" />}
                 Add shop
               </Button>}
             </div>;
